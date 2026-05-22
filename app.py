@@ -389,10 +389,11 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- 7. TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🎛️ DISPATCH BOARD",
     "🤖 WHATSAPP AI BOT",
     "📋 CALL SUMMARIES",
+    "📞 VOICE AI CALLS",
     "🗂️ JOB HISTORY",
     "👷 TECHNICIAN ROSTER"
 ])
@@ -459,7 +460,7 @@ with tab1:
         queue_df = get_jobs(status_filter="Pending Assignment")
         if not queue_df.empty:
             for _, row in queue_df.iterrows():
-                address_info = row.get('keywords', '') or ''
+                address_info = str(row.get('keywords', '') or '')
                 st.markdown(
                     f"<div class='job-card'>"
                     f"<b>Job #{row['id']} — {row['customer_name']}</b>"
@@ -586,7 +587,7 @@ with tab3:
             sentiment_val = summary.get("sentiment","Unknown").lower() if summary else "unknown"
             urgency_class   = {"low":"urgency-low","medium":"urgency-medium","high":"urgency-high","emergency":"urgency-emergency"}.get(urgency_val,"urgency-medium")
             sentiment_class = {"calm":"sentiment-calm","frustrated":"sentiment-frustrated","urgent":"sentiment-urgent","angry":"sentiment-angry","satisfied":"sentiment-satisfied","confused":"sentiment-confused"}.get(sentiment_val,"sentiment-calm")
-            address_display = row.get('keywords','') or '—'
+            address_display = str(row.get('keywords','') or '—')
 
             if summary:
                 followup_html = "".join([f"<div class='followup-item'><span class='followup-dot'>›</span>{item}</div>" for item in summary.get("follow_up",[])])
@@ -646,8 +647,186 @@ with tab3:
         if shown == 0:
             st.info("No summaries match your current filters.")
 
-# ── TAB 4 — JOB HISTORY ───────────────────────────────────────────────────────
+
+# ── TAB 4 — VOICE AI CALLS ───────────────────────────────────────────────────
 with tab4:
+    st.markdown("<h4 style='color:#ffffff; margin-bottom:4px;'>📞 Voice AI Receptionist — Live Call Log</h4>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#64748b; font-size:13px; margin-bottom:20px;'>Every call handled by your AI receptionist Alex appears here automatically with full AI analysis.</p>", unsafe_allow_html=True)
+
+    # Webhook status
+    webhook_url = "https://teleronwebhook.pythonanywhere.com"
+    try:
+        import requests as req
+        resp = req.get(f"{webhook_url}/health", timeout=5)
+        health = resp.json()
+        groq_ok  = health.get("groq_key_set", False)
+        gmail_ok = health.get("gmail_set", False)
+        st.markdown(f"""
+        <div style="background:#052e16; border:1px solid #166534; border-radius:12px; padding:14px 18px; margin-bottom:20px; display:flex; align-items:center; gap:16px;">
+            <div style="font-size:24px;">🟢</div>
+            <div>
+                <div style="font-size:13px; font-weight:700; color:#4ade80;">Voice AI Webhook is Live</div>
+                <div style="font-size:12px; color:#86efac; margin-top:2px;">
+                    AI Brain: {"✅ Connected" if groq_ok else "❌ Not connected"} &nbsp;|&nbsp;
+                    Email: {"✅ Connected" if gmail_ok else "❌ Not connected"} &nbsp;|&nbsp;
+                    Webhook: {webhook_url}
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    except Exception:
+        st.markdown("""
+        <div style="background:#3b0a0a; border:1px solid #991b1b; border-radius:12px; padding:14px 18px; margin-bottom:20px;">
+            <div style="font-size:13px; font-weight:700; color:#f87171;">🔴 Voice AI Webhook Offline</div>
+            <div style="font-size:12px; color:#fca5a5; margin-top:2px;">Check your PythonAnywhere account at teleronwebhook.pythonanywhere.com</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Stats row
+    all_calls_df = get_jobs()
+    ai_calls = all_calls_df[all_calls_df["assigned_tech"] == "Unassigned"] if not all_calls_df.empty else pd.DataFrame()
+    total_ai  = len(ai_calls)
+    emergency = 0
+    high      = 0
+    if not ai_calls.empty:
+        for _, r in ai_calls.iterrows():
+            s = parse_summary(r.get("ai_summary", None))
+            if s:
+                urg = s.get("urgency","").lower()
+                if urg == "emergency": emergency += 1
+                elif urg == "high":    high += 1
+
+    v1, v2, v3, v4 = st.columns(4)
+    with v1:
+        st.markdown(f"""<div class='metric-card'><div class='metric-card-top'><div class='metric-icon icon-blue'>📞</div><span class='metric-badge badge-blue'>AI Handled</span></div>
+        <div class='metric-number'>{total_ai}</div><div class='metric-title'>Total AI Calls</div></div>""", unsafe_allow_html=True)
+    with v2:
+        st.markdown(f"""<div class='metric-card'><div class='metric-card-top'><div class='metric-icon icon-purple'>🌍</div><span class='metric-badge badge-purple'>Auto detect</span></div>
+        <div class='metric-number'>Multi</div><div class='metric-title'>Languages</div></div>""", unsafe_allow_html=True)
+    with v3:
+        st.markdown(f"""<div class='metric-card'><div class='metric-card-top'><div class='metric-icon icon-amber'>⚠️</div><span class='metric-badge badge-amber'>Needs attention</span></div>
+        <div class='metric-number'>{high}</div><div class='metric-title'>High Urgency</div></div>""", unsafe_allow_html=True)
+    with v4:
+        st.markdown(f"""<div class='metric-card'><div class='metric-card-top'><div class='metric-icon' style='background:#3b0a0a;color:#f87171;'>🚨</div><span class='metric-badge' style='background:#3b0a0a;color:#f87171;'>Immediate</span></div>
+        <div class='metric-number'>{emergency}</div><div class='metric-title'>Emergencies</div></div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Connection info box
+    vcol1, vcol2 = st.columns([1, 1])
+    with vcol1:
+        st.markdown("<div class='section-header'>📋 Recent AI Handled Calls</div>", unsafe_allow_html=True)
+
+        voice_jobs = get_jobs()
+        if voice_jobs.empty:
+            st.info("No AI calls yet. Once a customer calls your Vapi number, their call will appear here automatically.")
+        else:
+            count = 0
+            for _, row in voice_jobs.iterrows():
+                summary = parse_summary(row.get("ai_summary", None))
+                if not summary:
+                    continue
+                count += 1
+                urgency_val = summary.get("urgency","Unknown").lower()
+                urgency_class = {"low":"urgency-low","medium":"urgency-medium","high":"urgency-high","emergency":"urgency-emergency"}.get(urgency_val,"urgency-medium")
+                sentiment_val = summary.get("sentiment","Unknown").lower()
+                sentiment_class = {"calm":"sentiment-calm","frustrated":"sentiment-frustrated","urgent":"sentiment-urgent","angry":"sentiment-angry","satisfied":"sentiment-satisfied","confused":"sentiment-confused"}.get(sentiment_val,"sentiment-calm")
+                language = summary.get("language","English")
+                followup_html = "".join([f"<div class='followup-item'><span class='followup-dot'>›</span>{item}</div>" for item in summary.get("follow_up",[])])
+                st.markdown(f"""
+                <div class='summary-card'>
+                    <div class='summary-card-header'>
+                        <div>
+                            <div class='summary-customer'>👤 {row["customer_name"]}</div>
+                            <div class='summary-phone'>📱 {row["phone"]}</div>
+                            <div style='font-size:11px; color:#a78bfa; margin-top:3px;'>🌍 {language}</div>
+                        </div>
+                        <div style='text-align:right;'>
+                            <div class='summary-job-id'>JOB #{row["id"]}</div>
+                            <div style='font-size:11px; color:#475569; margin-top:4px;'>{row.get("timestamp","")[:10]}</div>
+                            <div style='margin-top:6px;'><span class='urgency-badge {urgency_class}'>{summary.get("urgency","Unknown")}</span></div>
+                        </div>
+                    </div>
+                    <div class='summary-problem'>
+                        <div class='summary-problem-label'>🔧 Problem Detected</div>
+                        <div class='summary-problem-value'>{summary.get("problem","—")}</div>
+                    </div>
+                    <div class='summary-grid'>
+                        <div class='summary-field'><div class='summary-field-label'>🛠️ Service Type</div><div class='summary-field-value'>{summary.get("service_type","—")}</div></div>
+                        <div class='summary-field'><div class='summary-field-label'>👷 Tech Skill</div><div class='summary-field-value'>{summary.get("tech_skill","—")}</div></div>
+                        <div class='summary-field'><div class='summary-field-label'>😊 Sentiment</div><div class='summary-field-value'><span class='sentiment-badge {sentiment_class}'>{summary.get("sentiment","—")}</span></div></div>
+                        <div class='summary-field'><div class='summary-field-label'>📍 Address</div><div class='summary-field-value'>{str(row.get("keywords","—") or "—")[:30]}</div></div>
+                    </div>
+                    <div class='summary-followup'>
+                        <div class='summary-followup-label'>✅ Follow-up Actions</div>
+                        {followup_html}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Dispatch button
+                if row.get("status") == "Pending Assignment":
+                    tech_df = get_technicians(status_filter="Active")
+                    tech_list = tech_df["name"].tolist() if not tech_df.empty else ["No Active Technicians"]
+                    sel_tech = st.selectbox(f"Assign Tech — Job #{row['id']}", tech_list, key=f"vt_{row['id']}")
+                    if st.button(f"🚀 Dispatch Job #{row['id']}", key=f"vd_{row['id']}", use_container_width=True):
+                        supabase.table("jobs").update({"status":"Dispatched","assigned_tech":sel_tech}).eq("id",row["id"]).execute()
+                        st.success(f"✅ Job #{row['id']} dispatched to {sel_tech}!")
+                        st.rerun()
+                else:
+                    st.markdown(f"<div style='font-size:12px; color:#4ade80; margin-bottom:8px;'>✅ Status: {row.get('status','—')}</div>", unsafe_allow_html=True)
+
+                st.markdown("<hr style='border:none; border-top:1px solid #0f172a; margin:8px 0;'>", unsafe_allow_html=True)
+
+            if count == 0:
+                st.info("No AI analysed calls yet. Call your Vapi number to test!")
+
+    with vcol2:
+        st.markdown("<div class='section-header'>⚡ Quick Actions & Info</div>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style='background:#111827; border:1px solid #1e293b; border-radius:16px; padding:20px; margin-bottom:16px;'>
+            <div style='font-size:13px; font-weight:700; color:#ffffff; margin-bottom:14px;'>📱 Your AI Phone Setup</div>
+            <div style='background:#0f172a; border-radius:10px; padding:14px; margin-bottom:10px;'>
+                <div style='font-size:11px; color:#475569; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;'>Webhook URL</div>
+                <div style='font-size:12px; color:#60a5fa; word-break:break-all;'>{webhook_url}/vapi-webhook</div>
+            </div>
+            <div style='background:#0f172a; border-radius:10px; padding:14px; margin-bottom:10px;'>
+                <div style='font-size:11px; color:#475569; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;'>AI Receptionist</div>
+                <div style='font-size:12px; color:#e2e8f0;'>Alex — Teleron AI Receptionist</div>
+            </div>
+            <div style='background:#0f172a; border-radius:10px; padding:14px; margin-bottom:10px;'>
+                <div style='font-size:11px; color:#475569; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;'>Languages Supported</div>
+                <div style='font-size:12px; color:#e2e8f0;'>English, Urdu, Spanish, Arabic, Hindi, French</div>
+            </div>
+            <div style='background:#0f172a; border-radius:10px; padding:14px;'>
+                <div style='font-size:11px; color:#475569; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;'>Services Handled</div>
+                <div style='font-size:12px; color:#e2e8f0;'>HVAC · Plumbing · Electrical · Appliance Repair · General Home Services</div>
+            </div>
+        </div>
+
+        <div style='background:#052e16; border:1px solid #166534; border-radius:12px; padding:14px; margin-bottom:12px;'>
+            <div style='font-size:12px; font-weight:700; color:#4ade80; margin-bottom:6px;'>✅ What Alex Does on Every Call</div>
+            <div style='font-size:12px; color:#86efac; line-height:1.8;'>
+                📋 Collects customer name and phone<br>
+                📍 Gets full service address<br>
+                🔧 Identifies the problem<br>
+                🚨 Detects urgency level<br>
+                🌍 Speaks customer language automatically<br>
+                💾 Saves job to this dispatch board<br>
+                📧 Emails summary to your team
+            </div>
+        </div>
+
+        <div style='background:#2d1a00; border:1px solid #92400e; border-radius:12px; padding:14px;'>
+            <div style='font-size:12px; font-weight:700; color:#fbbf24; margin-bottom:6px;'>⚡ Test Your Voice AI</div>
+            <div style='font-size:12px; color:#fde68a; line-height:1.6;'>
+                Call your Vapi phone number and speak naturally. Alex will answer, collect your details, and the job will appear in this tab automatically within 30 seconds.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ── TAB 5 — JOB HISTORY ───────────────────────────────────────────────────────
+with tab5:
     jobs_df = get_jobs()
     if not jobs_df.empty:
         s1, s2, s3 = st.columns(3)
@@ -658,8 +837,8 @@ with tab4:
     else:
         st.info("No job records yet.")
 
-# ── TAB 5 — TECHNICIAN ROSTER ─────────────────────────────────────────────────
-with tab5:
+# ── TAB 6 — TECHNICIAN ROSTER ─────────────────────────────────────────────────
+with tab6:
     left_col, right_col = st.columns([1.1, 0.9])
 
     with left_col:
