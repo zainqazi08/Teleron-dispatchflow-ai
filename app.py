@@ -5,6 +5,7 @@ import os
 import base64
 import json
 import requests
+import plotly.graph_objects as go
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIG ---
@@ -261,20 +262,15 @@ div[data-testid="stForm"]{background:#050508!important;border:1px solid #0f0f1a!
 hr{border-color:#0f0f1a!important;}
 .stInfo{background:#03030a!important;border:1px solid #1a1a2e!important;color:#475569!important;border-radius:12px!important;}
 .stSpinner>div{border-color:#6366f1!important;}
-/* Analytics page styles */
-.analytics-page{background:#000;min-height:100vh;}
 .analytics-kpi{background:#050508;border:1px solid #0f0f1a;border-radius:16px;padding:20px 24px;text-align:center;}
 .analytics-kpi-num{font-family:'Space Grotesk',sans-serif;font-size:36px;font-weight:700;line-height:1;letter-spacing:-1px;}
 .analytics-kpi-label{font-size:10px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-top:6px;}
 .analytics-chart-box{background:#050508;border:1px solid #0f0f1a;border-radius:16px;padding:20px 22px;margin-bottom:16px;}
 .analytics-chart-title{font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;}
-.back-btn-wrap{margin-bottom:24px;}
 </style>
 """, unsafe_allow_html=True)
 
 # --- 7. PLOTLY DARK THEME HELPER ---
-import plotly.graph_objects as go
-
 def dark_fig(height=260):
     fig = go.Figure()
     fig.update_layout(
@@ -317,9 +313,9 @@ def render_header(show_back=False, back_label="← Back to Dashboard", page_titl
             st.session_state.page = "home"
             st.rerun()
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # ANALYTICS PAGE — TOTAL CALLS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 def page_total_calls():
     render_header(show_back=True, page_title="Total Calls Analytics")
     all_jobs = get_jobs()
@@ -328,7 +324,6 @@ def page_total_calls():
     pending    = len(all_jobs[all_jobs['status']=='Pending Assignment']) if not all_jobs.empty else 0
     other      = total - dispatched - pending
 
-    # KPI row
     st.markdown("<div class='section-header'>Key Metrics</div>", unsafe_allow_html=True)
     k1,k2,k3,k4 = st.columns(4)
     for col, val, label, color in [
@@ -342,15 +337,13 @@ def page_total_calls():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Daily trend
     if not all_jobs.empty and 'timestamp' in all_jobs.columns:
         all_jobs['date'] = pd.to_datetime(all_jobs['timestamp'], errors='coerce').dt.date
         daily = all_jobs.groupby('date').size().reset_index(name='count').sort_values('date')
 
         col1, col2 = st.columns(2)
-
         with col1:
-            st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Daily Call Volume — Full History</div>", unsafe_allow_html=True)
+            st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Daily Call Volume</div>", unsafe_allow_html=True)
             fig = dark_fig(280)
             fig.add_trace(go.Scatter(
                 x=daily['date'].astype(str), y=daily['count'],
@@ -380,8 +373,7 @@ def page_total_calls():
             st.plotly_chart(fig2, use_container_width=True, config=CHART_CFG)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Weekly grouped bar
-        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📊 Weekly Call Comparison — Dispatched vs Pending</div>", unsafe_allow_html=True)
+        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📊 Weekly Dispatched vs Pending</div>", unsafe_allow_html=True)
         all_jobs['week'] = pd.to_datetime(all_jobs['timestamp'], errors='coerce').dt.to_period('W').astype(str)
         weekly_disp = all_jobs[all_jobs['status']=='Dispatched'].groupby('week').size().reset_index(name='dispatched')
         weekly_pend = all_jobs[all_jobs['status']=='Pending Assignment'].groupby('week').size().reset_index(name='pending')
@@ -393,23 +385,21 @@ def page_total_calls():
         st.plotly_chart(fig3, use_container_width=True, config=CHART_CFG)
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Recent jobs table
         st.markdown("<div class='section-header' style='margin-top:8px;'>Recent Calls</div>", unsafe_allow_html=True)
         show_cols = [c for c in ['id','customer_name','phone','status','scheduled_date','assigned_tech','timestamp'] if c in all_jobs.columns]
         st.dataframe(all_jobs[show_cols].head(20), use_container_width=True, hide_index=True)
     else:
         st.info("No call data yet.")
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # ANALYTICS PAGE — ACTIVE JOBS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 def page_active_jobs():
     render_header(show_back=True, page_title="Active Jobs Analytics")
     all_jobs   = get_jobs()
     disp_jobs  = get_jobs(status_filter="Dispatched")
     all_techs  = get_technicians()
     tech_active = len(get_technicians(status_filter="Active"))
-
     total      = len(all_jobs)
     dispatched = len(disp_jobs)
     dispatch_rate = f"{round((dispatched/total)*100)}%" if total else "0%"
@@ -427,7 +417,6 @@ def page_active_jobs():
             st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:{color};'>{val}</div><div class='analytics-kpi-label'>{label}</div></div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-
     col1, col2 = st.columns(2)
 
     with col1:
@@ -448,7 +437,7 @@ def page_active_jobs():
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Dispatch Trend — Full History</div>", unsafe_allow_html=True)
+        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Dispatch Trend</div>", unsafe_allow_html=True)
         if not all_jobs.empty and 'timestamp' in all_jobs.columns:
             all_jobs['date'] = pd.to_datetime(all_jobs['timestamp'], errors='coerce').dt.date
             dd = all_jobs[all_jobs['status']=='Dispatched'].groupby('date').size().reset_index(name='count').sort_values('date')
@@ -464,8 +453,7 @@ def page_active_jobs():
                 st.plotly_chart(fig2, use_container_width=True, config=CHART_CFG)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Workload per tech horizontal bar
-    st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>⚡ Total Workload per Technician (All Jobs)</div>", unsafe_allow_html=True)
+    st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>⚡ Total Workload per Technician</div>", unsafe_allow_html=True)
     if not all_jobs.empty and 'assigned_tech' in all_jobs.columns:
         wl = all_jobs['assigned_tech'].value_counts().reset_index()
         wl.columns = ['tech','jobs']
@@ -477,12 +465,9 @@ def page_active_jobs():
                 marker=dict(color='#6366f1', opacity=0.85, line=dict(color='#818cf8', width=1)),
                 text=wl['jobs'], textposition='outside', textfont=dict(color='#818cf8', size=12)
             ))
-            fig3.update_layout(xaxis=dict(gridcolor="#0f0f1a", tickfont=dict(color="#334155", size=10)),
-                               yaxis=dict(gridcolor="rgba(0,0,0,0)", tickfont=dict(color="#94a3b8", size=11)))
             st.plotly_chart(fig3, use_container_width=True, config=CHART_CFG)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Active jobs table
     st.markdown("<div class='section-header'>Currently Dispatched Jobs</div>", unsafe_allow_html=True)
     if not disp_jobs.empty:
         show_cols = [c for c in ['id','customer_name','phone','assigned_tech','scheduled_date','keywords'] if c in disp_jobs.columns]
@@ -490,9 +475,9 @@ def page_active_jobs():
     else:
         st.info("No active dispatched jobs.")
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # ANALYTICS PAGE — PENDING
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 def page_pending():
     render_header(show_back=True, page_title="Pending Queue Analytics")
     all_jobs  = get_jobs()
@@ -512,20 +497,19 @@ def page_pending():
     st.markdown("<div class='section-header'>Key Metrics</div>", unsafe_allow_html=True)
     k1,k2,k3,k4 = st.columns(4)
     for col, val, label, color in [
-        (k1, pending,          "Pending Jobs",  "#fbbf24"),
-        (k2, pending_pct,      "% of Total",    "#818cf8"),
-        (k3, queue_label(pending), "Queue Load","#34d399"),
-        (k4, tech_active,      "Techs Ready",   "#a78bfa"),
+        (k1, pending,              "Pending Jobs",  "#fbbf24"),
+        (k2, pending_pct,          "% of Total",    "#818cf8"),
+        (k3, queue_label(pending), "Queue Load",    "#34d399"),
+        (k4, tech_active,          "Techs Ready",   "#a78bfa"),
     ]:
         with col:
             st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:{color};'>{val}</div><div class='analytics-kpi-label'>{label}</div></div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📅 Pending Jobs by Scheduled Date</div>", unsafe_allow_html=True)
+        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📅 Pending by Scheduled Date</div>", unsafe_allow_html=True)
         if not pend_jobs.empty and 'scheduled_date' in pend_jobs.columns:
             pbd = pend_jobs['scheduled_date'].value_counts().reset_index()
             pbd.columns = ['date','count']
@@ -558,8 +542,7 @@ def page_pending():
         st.plotly_chart(fig2, use_container_width=True, config=CHART_CFG)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Pending trend over time
-    st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Pending Jobs Created Over Time</div>", unsafe_allow_html=True)
+    st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Pending Jobs Over Time</div>", unsafe_allow_html=True)
     if not all_jobs.empty and 'timestamp' in all_jobs.columns:
         all_jobs['date'] = pd.to_datetime(all_jobs['timestamp'], errors='coerce').dt.date
         pd_trend = all_jobs[all_jobs['status']=='Pending Assignment'].groupby('date').size().reset_index(name='count').sort_values('date')
@@ -575,7 +558,6 @@ def page_pending():
             st.plotly_chart(fig3, use_container_width=True, config=CHART_CFG)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Pending jobs table
     st.markdown("<div class='section-header'>All Pending Jobs</div>", unsafe_allow_html=True)
     if not pend_jobs.empty:
         show_cols = [c for c in ['id','customer_name','phone','scheduled_date','assigned_tech','keywords','timestamp'] if c in pend_jobs.columns]
@@ -583,9 +565,9 @@ def page_pending():
     else:
         st.info("No pending jobs at the moment.")
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # ANALYTICS PAGE — TECHNICIANS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 def page_technicians():
     render_header(show_back=True, page_title="Technician Analytics")
     all_techs   = get_technicians()
@@ -608,11 +590,10 @@ def page_technicians():
             st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:{color};'>{val}</div><div class='analytics-kpi-label'>{label}</div></div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>🍩 Technician Status Distribution</div>", unsafe_allow_html=True)
+        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>🍩 Technician Status</div>", unsafe_allow_html=True)
         if not all_techs.empty:
             ts = all_techs['status'].value_counts().reset_index()
             ts.columns = ['status','count']
@@ -646,7 +627,6 @@ def page_technicians():
                 st.plotly_chart(fig2, use_container_width=True, config=CHART_CFG)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Active vs Inactive bar by zone
     if not all_techs.empty and 'zone' in all_techs.columns:
         st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📍 Technicians by Zone</div>", unsafe_allow_html=True)
         zone_counts = all_techs[all_techs['zone'].notna() & (all_techs['zone']!='')]['zone'].value_counts().reset_index()
@@ -661,20 +641,18 @@ def page_technicians():
             st.plotly_chart(fig3, use_container_width=True, config=CHART_CFG)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Full roster table
     st.markdown("<div class='section-header'>Full Technician Roster</div>", unsafe_allow_html=True)
     if not all_techs.empty:
         st.dataframe(all_techs, use_container_width=True, hide_index=True)
     else:
         st.info("No technicians added yet.")
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # HOME PAGE
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 def page_home():
     render_header()
 
-    # Fetch data
     all_jobs      = get_jobs()
     total         = len(all_jobs)
     dispatched    = len(get_jobs(status_filter="Dispatched"))
@@ -698,7 +676,6 @@ def page_home():
         if n<=8: return "Medium"
         return "High"
 
-    # ── 4 METRIC CARDS ─────────────────────────────────────────────────────
     st.markdown("<div style='font-size:10px;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;'>📊 Live Dashboard — click any card to open full analytics</div>", unsafe_allow_html=True)
 
     mc1, mc2, mc3, mc4 = st.columns(4)
@@ -777,12 +754,10 @@ def page_home():
 
     st.markdown("<hr style='border-color:#0f0f1a;margin:28px 0 24px;'>", unsafe_allow_html=True)
 
-    # ── TABS ───────────────────────────────────────────────────────────────
     tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs([
         "⚡ DISPATCH","🤖 AI BOT","📋 SUMMARIES","📞 VOICE AI","🗂️ HISTORY","👷 ROSTER"
     ])
 
-    # ── TAB 1 ───────────────────────────────────────────────────────────────
     with tab1:
         gl, gr = st.columns([1,1], gap="large")
         with gl:
@@ -850,7 +825,6 @@ def page_home():
             else:
                 st.markdown("<div style='text-align:center;padding:50px 20px;color:#1e293b;'><div style='font-size:36px;margin-bottom:10px;'>✓</div><div style='font-size:13px;font-weight:600;'>Queue is clear</div></div>", unsafe_allow_html=True)
 
-    # ── TAB 2 ───────────────────────────────────────────────────────────────
     with tab2:
         st.markdown("<div class='section-header'>WhatsApp AI Chatbot — Live Preview</div>", unsafe_allow_html=True)
         bc,ic = st.columns([1,1], gap="large")
@@ -894,7 +868,6 @@ def page_home():
             </div>
             """, unsafe_allow_html=True)
 
-    # ── TAB 3 ───────────────────────────────────────────────────────────────
     with tab3:
         st.markdown("<div class='section-header'>AI Call Summaries</div>", unsafe_allow_html=True)
         fc1,fc2,fc3 = st.columns(3)
@@ -948,7 +921,6 @@ def page_home():
                 st.markdown("<hr style='border:none;border-top:1px solid #050508;margin:4px 0 12px;'>", unsafe_allow_html=True)
             if shown==0: st.info("No summaries match your filters.")
 
-    # ── TAB 4 ───────────────────────────────────────────────────────────────
     with tab4:
         st.markdown("<div class='section-header'>Voice AI Receptionist — Live Call Log</div>", unsafe_allow_html=True)
         webhook_url = "https://teleronwebhook.pythonanywhere.com"
@@ -1047,7 +1019,6 @@ def page_home():
             </div>
             """, unsafe_allow_html=True)
 
-    # ── TAB 5 ───────────────────────────────────────────────────────────────
     with tab5:
         st.markdown("<div class='section-header'>Job History</div>", unsafe_allow_html=True)
         jdf = get_jobs()
@@ -1061,7 +1032,6 @@ def page_home():
         else:
             st.info("No job records yet.")
 
-    # ── TAB 6 ───────────────────────────────────────────────────────────────
     with tab6:
         lc,rc = st.columns([1.1,0.9], gap="large")
         with lc:
@@ -1124,9 +1094,9 @@ def page_home():
             else:
                 st.markdown("<div style='text-align:center;padding:60px 20px;color:#0f0f1a;'><div style='font-size:42px;margin-bottom:12px;'>👷</div><div style='font-size:13px;font-weight:600;'>No technicians added yet</div></div>", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # ROUTER
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 page = st.session_state.get("page", "home")
 
 if page == "total_calls":
