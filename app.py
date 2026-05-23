@@ -142,40 +142,34 @@ def delete_technician(tech_id): return supabase.table("technicians").delete().eq
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
-# --- 6. SHARED CSS ---
+# --- 6. SHARED CSS (FIXED - NO VISIBLE CODE) ---
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
-*,*::before,*::after{box-sizing:border-box;}
+
+*{box-sizing:border-box;}
 .stApp{background:#000000;color:#e2e8f0;font-family:'Inter',sans-serif;}
 header,footer{visibility:hidden!important;}
-.block-container{padding-top:1.5rem!important;max-width:97%!important;}
+.block-container{padding-top:1rem!important;max-width:95%!important;}
+
 ::-webkit-scrollbar{width:4px;height:4px;}
 ::-webkit-scrollbar-track{background:#0a0a0a;}
 ::-webkit-scrollbar-thumb{background:#1e293b;border-radius:99px;}
-.stTextInput>div>div>input,.stTextArea>div>div>textarea,.stSelectbox>div>div>div,.stDateInput>div>div>input,.stNumberInput>div>div>input{background-color:#0a0a0a!important;color:#e2e8f0!important;border:1px solid #1a1a2e!important;border-radius:10px!important;font-family:'Inter',sans-serif!important;font-size:13px!important;padding:10px 14px!important;transition:border-color 0.2s ease!important;}
-.stTextInput>div>div>input:focus,.stTextArea>div>div>textarea:focus{border-color:#6366f1!important;box-shadow:0 0 0 3px rgba(99,102,241,0.1)!important;outline:none!important;}
+
+.stTextInput>div>div>input,.stTextArea>div>div>textarea,.stSelectbox>div>div>div,.stDateInput>div>div>input,.stNumberInput>div>div>input{background-color:#0a0a0a!important;color:#e2e8f0!important;border:1px solid #1a1a2e!important;border-radius:10px!important;font-family:'Inter',sans-serif!important;font-size:13px!important;padding:10px 14px!important;}
+.stTextInput>div>div>input:focus,.stTextArea>div>div>textarea:focus{border-color:#6366f1!important;box-shadow:0 0 0 3px rgba(99,102,241,0.1)!important;}
 .stTextInput label,.stTextArea label,.stSelectbox label,.stDateInput label,.stNumberInput label{color:#64748b!important;font-size:11px!important;font-weight:600!important;text-transform:uppercase!important;letter-spacing:1px!important;}
-.stSelectbox>div>div>div{background-color:#0a0a0a!important;color:#e2e8f0!important;}
-[data-baseweb="select"]>div{background-color:#0a0a0a!important;border-color:#1a1a2e!important;}
-[data-baseweb="menu"]{background-color:#0d0d0d!important;border:1px solid #1a1a2e!important;}
-[data-baseweb="option"]{background-color:#0d0d0d!important;color:#e2e8f0!important;}
-[data-baseweb="option"]:hover{background-color:#1a1a2e!important;}
-.stButton>button{background:linear-gradient(135deg,#6366f1,#4f46e5)!important;color:#ffffff!important;border:none!important;border-radius:10px!important;font-family:'Inter',sans-serif!important;font-size:12px!important;font-weight:700!important;letter-spacing:0.5px!important;padding:10px 20px!important;transition:all 0.2s ease!important;text-transform:uppercase!important;}
+
+.stButton>button{background:linear-gradient(135deg,#6366f1,#4f46e5)!important;color:#fff!important;border:none!important;border-radius:10px!important;font-family:'Inter',sans-serif!important;font-size:12px!important;font-weight:700!important;padding:10px 20px!important;transition:all 0.2s ease!important;text-transform:uppercase!important;}
 .stButton>button:hover{background:linear-gradient(135deg,#7c3aed,#6366f1)!important;transform:translateY(-1px)!important;box-shadow:0 8px 25px rgba(99,102,241,0.35)!important;}
-div[data-testid="stForm"]{background:#050508!important;border:1px solid #0f0f1a!important;border-radius:16px!important;padding:24px!important;}
-.stTabs [data-baseweb="tab-list"]{background:#050508!important;border-radius:14px!important;padding:6px!important;gap:4px!important;border:1px solid #0f0f1a!important;margin-bottom:24px!important;}
-.stTabs [data-baseweb="tab"]{background:transparent!important;color:#475569!important;border-radius:10px!important;font-size:12px!important;font-weight:600!important;letter-spacing:0.3px!important;padding:8px 16px!important;border:none!important;transition:all 0.2s ease!important;}
-.stTabs [aria-selected="true"]{background:linear-gradient(135deg,#6366f1,#4f46e5)!important;color:#ffffff!important;box-shadow:0 4px 15px rgba(99,102,241,0.3)!important;}
-.stTabs [data-baseweb="tab-highlight"]{display:none!important;}
-.stTabs [data-baseweb="tab-border"]{display:none!important;}
-.metric-card{background:#050508;border:1px solid #0f0f1a;border-radius:20px;padding:22px 24px 20px;position:relative;overflow:hidden;transition:border-color 0.3s ease,transform 0.2s ease;cursor:pointer;}
-.metric-card::after{content:'';position:absolute;top:0;right:0;width:80px;height:80px;border-radius:50%;opacity:0.06;transform:translate(20px,-20px);}
+
+.metric-card{background:#050508;border:1px solid #0f0f1a;border-radius:20px;padding:22px 24px 20px;position:relative;overflow:hidden;transition:all 0.2s ease;cursor:pointer;}
+.metric-card:hover{border-color:#6366f1!important;transform:translateY(-3px);box-shadow:0 12px 40px rgba(99,102,241,0.15);}
 .metric-card.blue::after{background:#6366f1;}
 .metric-card.green::after{background:#10b981;}
 .metric-card.amber::after{background:#f59e0b;}
 .metric-card.purple::after{background:#8b5cf6;}
-.metric-card:hover{border-color:#6366f1!important;transform:translateY(-3px);box-shadow:0 12px 40px rgba(99,102,241,0.15);}
+.metric-card::after{content:'';position:absolute;top:0;right:0;width:80px;height:80px;border-radius:50%;opacity:0.06;transform:translate(20px,-20px);}
 .metric-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;}
 .metric-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;}
 .icon-blue{background:rgba(99,102,241,0.12);color:#818cf8;}
@@ -187,43 +181,39 @@ div[data-testid="stForm"]{background:#050508!important;border:1px solid #0f0f1a!
 .badge-green{background:rgba(16,185,129,0.12);color:#34d399;}
 .badge-amber{background:rgba(245,158,11,0.12);color:#fbbf24;}
 .badge-purple{background:rgba(139,92,246,0.12);color:#a78bfa;}
-.metric-number{font-family:'Space Grotesk',sans-serif;font-size:42px;font-weight:700;line-height:1;margin-bottom:4px;letter-spacing:-2px;color:#f8fafc;}
+.metric-number{font-family:'Space Grotesk',sans-serif;font-size:42px;font-weight:700;line-height:1;letter-spacing:-2px;color:#f8fafc;}
 .metric-title{font-size:10px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:20px;}
 .metric-divider{border:none;border-top:1px solid #0f0f1a;margin:0 0 14px;}
 .metric-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#334155;margin-bottom:8px;}
 .metric-row-label{display:flex;align-items:center;gap:7px;}
 .metric-row-val{font-weight:700;font-size:12px;color:#94a3b8;}
-.metric-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0;}
+.metric-dot{width:6px;height:6px;border-radius:50%;display:inline-block;}
 .metric-bar-wrap{height:3px;background:#0f0f1a;border-radius:99px;margin-top:16px;overflow:hidden;}
 .metric-bar-fill{height:100%;border-radius:99px;}
-.metric-hint{font-size:9px;color:#334155;text-align:center;margin-top:10px;letter-spacing:0.5px;}
-.glass-card{background:#050508;border:1px solid #0f0f1a;border-radius:20px;padding:24px;margin-bottom:16px;transition:border-color 0.2s ease;}
-.glass-card:hover{border-color:#1a1a2e;}
-.job-card{background:#050508;border:1px solid #0f0f1a;border-radius:16px;padding:18px 20px;margin-bottom:12px;transition:border-color 0.2s ease,box-shadow 0.2s ease;position:relative;}
-.job-card:hover{border-color:#1e1b4b;box-shadow:0 4px 20px rgba(99,102,241,0.08);}
+.metric-hint{font-size:9px;color:#334155;text-align:center;margin-top:10px;}
+
+.section-header{font-size:11px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:2px;border-bottom:1px solid #0f0f1a;padding-bottom:12px;margin-bottom:20px;display:flex;align-items:center;gap:8px;}
+.section-header::before{content:'';display:inline-block;width:3px;height:14px;background:linear-gradient(180deg,#6366f1,#8b5cf6);border-radius:99px;}
+
+.job-card{background:#050508;border:1px solid #0f0f1a;border-radius:16px;padding:18px 20px;margin-bottom:12px;transition:border-color 0.2s ease;}
+.job-card:hover{border-color:#1e1b4b;}
 .job-card-id{font-size:10px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;}
 .job-card-name{font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:4px;}
 .job-card-meta{font-size:12px;color:#334155;display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;}
 .job-card-meta span{display:flex;align-items:center;gap:5px;}
-.section-header{font-size:11px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:2px;border-bottom:1px solid #0f0f1a;padding-bottom:12px;margin-bottom:20px;display:flex;align-items:center;gap:8px;}
-.section-header::before{content:'';display:inline-block;width:3px;height:14px;background:linear-gradient(180deg,#6366f1,#8b5cf6);border-radius:99px;}
+
+.stTabs [data-baseweb="tab-list"]{background:#050508!important;border-radius:14px!important;padding:6px!important;gap:4px!important;border:1px solid #0f0f1a!important;margin-bottom:24px!important;}
+.stTabs [data-baseweb="tab"]{background:transparent!important;color:#475569!important;border-radius:10px!important;font-size:12px!important;font-weight:600!important;padding:8px 16px!important;}
+.stTabs [aria-selected="true"]{background:linear-gradient(135deg,#6366f1,#4f46e5)!important;color:#fff!important;}
+.stTabs [data-baseweb="tab-highlight"]{display:none!important;}
+.stTabs [data-baseweb="tab-border"]{display:none!important;}
+
 .address-box{background:#03030a;border:1px solid #0f0f1a;border-left:3px solid #6366f1;border-radius:14px;padding:18px 20px;margin:14px 0 18px 0;}
 .address-box-title{font-size:10px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:2px;margin-bottom:14px;display:flex;align-items:center;gap:7px;}
-.badge-active{background:rgba(16,185,129,0.1);color:#34d399;border:1px solid rgba(16,185,129,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:0.5px;}
-.badge-inactive{background:rgba(71,85,105,0.1);color:#64748b;border:1px solid rgba(71,85,105,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:0.5px;}
-.badge-pending{background:rgba(245,158,11,0.1);color:#fbbf24;border:1px solid rgba(245,158,11,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:0.5px;}
-.badge-dispatch{background:rgba(99,102,241,0.1);color:#818cf8;border:1px solid rgba(99,102,241,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:0.5px;}
-.urgency-badge,.sentiment-badge{display:inline-block;font-size:10px;font-weight:700;padding:3px 10px;border-radius:999px;letter-spacing:0.5px;}
-.urgency-low{background:rgba(16,185,129,0.1);color:#34d399;border:1px solid rgba(16,185,129,0.2);}
-.urgency-medium{background:rgba(245,158,11,0.1);color:#fbbf24;border:1px solid rgba(245,158,11,0.2);}
-.urgency-high{background:rgba(249,115,22,0.1);color:#fb923c;border:1px solid rgba(249,115,22,0.2);}
-.urgency-emergency{background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2);}
-.sentiment-calm{background:rgba(16,185,129,0.1);color:#34d399;}
-.sentiment-frustrated{background:rgba(245,158,11,0.1);color:#fbbf24;}
-.sentiment-urgent{background:rgba(249,115,22,0.1);color:#fb923c;}
-.sentiment-angry{background:rgba(239,68,68,0.1);color:#f87171;}
-.sentiment-satisfied{background:rgba(99,102,241,0.1);color:#818cf8;}
-.sentiment-confused{background:rgba(139,92,246,0.1);color:#a78bfa;}
+
+.badge-active{background:rgba(16,185,129,0.1);color:#34d399;border:1px solid rgba(16,185,129,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;}
+.badge-inactive{background:rgba(71,85,105,0.1);color:#64748b;border:1px solid rgba(71,85,105,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;}
+
 .summary-card{background:#050508;border:1px solid #0f0f1a;border-radius:20px;padding:24px 26px;margin-bottom:16px;transition:border-color 0.2s;}
 .summary-card:hover{border-color:#1a1a2e;}
 .summary-card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid #0f0f1a;}
@@ -240,33 +230,32 @@ div[data-testid="stForm"]{background:#050508!important;border:1px solid #0f0f1a!
 .summary-followup{background:#03030a;border:1px solid #0f0f1a;border-radius:12px;padding:14px 16px;}
 .summary-followup-label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#334155;margin-bottom:10px;}
 .followup-item{font-size:12px;color:#475569;padding:4px 0;display:flex;align-items:flex-start;gap:10px;}
-.followup-dot{color:#6366f1;font-weight:900;flex-shrink:0;margin-top:1px;}
+.followup-dot{color:#6366f1;font-weight:900;flex-shrink:0;}
+
 .wa-outer{background:#03030a;border:1px solid #0f0f1a;border-radius:20px;overflow:hidden;max-width:460px;margin:0 auto;}
 .wa-header{background:linear-gradient(135deg,#075E54,#128C7E);padding:16px 20px;display:flex;align-items:center;gap:14px;}
 .wa-avatar{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#25D366,#128C7E);display:flex;align-items:center;justify-content:center;font-size:20px;}
-.wa-name{font-size:15px;font-weight:700;color:#fff;font-family:'Inter',sans-serif;}
+.wa-name{font-size:15px;font-weight:700;color:#fff;}
 .wa-status{font-size:11px;color:rgba(255,255,255,0.7);margin-top:2px;}
 .wa-messages{padding:16px;min-height:340px;max-height:400px;overflow-y:auto;background:#020205;}
-.wa-bubble-bot{background:#0f0f1a;border-radius:0 14px 14px 14px;padding:11px 15px;margin-bottom:10px;max-width:84%;font-size:13px;line-height:1.55;color:#cbd5e1;border:1px solid #1a1a2e;}
-.wa-bubble-user{background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:14px 0 14px 14px;padding:11px 15px;margin-bottom:10px;max-width:84%;margin-left:auto;font-size:13px;line-height:1.55;color:#e0e7ff;}
+.wa-bubble-bot{background:#0f0f1a;border-radius:0 14px 14px 14px;padding:11px 15px;margin-bottom:10px;max-width:84%;font-size:13px;color:#cbd5e1;border:1px solid #1a1a2e;}
+.wa-bubble-user{background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:14px 0 14px 14px;padding:11px 15px;margin-bottom:10px;max-width:84%;margin-left:auto;font-size:13px;color:#e0e7ff;}
 .wa-time{font-size:10px;color:#334155;margin-top:4px;text-align:right;}
-.tech-card{background:#050508;border:1px solid #0f0f1a;border-radius:16px;padding:18px 20px;margin-bottom:12px;transition:border-color 0.2s,box-shadow 0.2s;}
-.tech-card:hover{border-color:#1e1b4b;box-shadow:0 4px 20px rgba(99,102,241,0.06);}
-.stAlert{background:#03030a!important;border:1px solid #1a1a2e!important;border-radius:12px!important;color:#94a3b8!important;}
-.stDataFrame{background:#050508!important;border:1px solid #0f0f1a!important;border-radius:14px!important;}
-.stDataFrame th{background:#03030a!important;color:#475569!important;font-size:10px!important;text-transform:uppercase!important;letter-spacing:1px!important;}
-.stDataFrame td{color:#94a3b8!important;font-size:12px!important;}
-[data-testid="metric-container"]{background:#050508!important;border:1px solid #0f0f1a!important;border-radius:14px!important;padding:16px!important;}
-[data-testid="metric-container"] label{color:#334155!important;font-size:10px!important;text-transform:uppercase!important;letter-spacing:1px!important;}
-[data-testid="metric-container"] [data-testid="stMetricValue"]{color:#f1f5f9!important;font-family:'Space Grotesk',sans-serif!important;}
-hr{border-color:#0f0f1a!important;}
-.stInfo{background:#03030a!important;border:1px solid #1a1a2e!important;color:#475569!important;border-radius:12px!important;}
-.stSpinner>div{border-color:#6366f1!important;}
+
+.tech-card{background:#050508;border:1px solid #0f0f1a;border-radius:16px;padding:18px 20px;margin-bottom:12px;}
+.tech-card:hover{border-color:#1e1b4b;}
+
 .analytics-kpi{background:#050508;border:1px solid #0f0f1a;border-radius:16px;padding:20px 24px;text-align:center;}
 .analytics-kpi-num{font-family:'Space Grotesk',sans-serif;font-size:36px;font-weight:700;line-height:1;letter-spacing:-1px;}
 .analytics-kpi-label{font-size:10px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-top:6px;}
 .analytics-chart-box{background:#050508;border:1px solid #0f0f1a;border-radius:16px;padding:20px 22px;margin-bottom:16px;}
 .analytics-chart-title{font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;}
+
+.stDataFrame{background:#050508!important;border:1px solid #0f0f1a!important;border-radius:14px!important;}
+.stDataFrame th{background:#03030a!important;color:#475569!important;font-size:10px!important;text-transform:uppercase!important;}
+.stDataFrame td{color:#94a3b8!important;font-size:12px!important;}
+.stAlert{background:#03030a!important;border:1px solid #1a1a2e!important;border-radius:12px!important;}
+hr{border-color:#0f0f1a!important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -286,36 +275,55 @@ def dark_fig(height=260):
 
 CHART_CFG = {"displayModeBar": False}
 
-# --- 8. SHARED HEADER ---
+# --- 8. SHARED HEADER (FIXED - no raw HTML leaking) ---
 def render_header(show_back=False, back_label="← Back to Dashboard", page_title=None):
     logo_base64 = base64.b64encode(open("logo.png","rb").read()).decode() if os.path.exists("logo.png") else None
-    logo_html = f"<img src='data:image/png;base64,{logo_base64}' style='height:42px;width:auto;border-radius:10px;'>" if logo_base64 else "<div style='width:42px;height:42px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;'>⚡</div>"
-    title_html = f"<div style='font-size:14px;font-weight:600;color:#818cf8;margin-top:2px;'>{page_title}</div>" if page_title else ""
-    st.markdown(f"""
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid #0f0f1a;">
-        <div style="display:flex;align-items:center;gap:16px;">
-            {logo_html}
-            <div>
-                <div style="font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;color:#f8fafc;letter-spacing:-0.5px;">TELERON</div>
-                <div style="font-size:10px;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:2px;margin-top:1px;">Central Dispatch</div>
-                {title_html}
-            </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#34d399;">🟢 LIVE</div>
-            <div style="background:#050508;border:1px solid #0f0f1a;border-radius:99px;padding:6px 14px;font-size:11px;color:#475569;">{datetime.now().strftime("%b %d, %Y")}</div>
-            {"<div style='background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#f87171;'>⚠️ AI Offline</div>" if not AI_ENABLED else "<div style='background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#818cf8;'>🤖 AI Active</div>"}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    logo_html = (
+        "<img src='data:image/png;base64," + logo_base64 + "' style='height:42px;width:auto;border-radius:10px;'>"
+        if logo_base64
+        else "<div style='width:42px;height:42px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;'>⚡</div>"
+    )
+    title_html = (
+        "<div style='font-size:14px;font-weight:600;color:#818cf8;margin-top:2px;'>" + page_title + "</div>"
+        if page_title else ""
+    )
+    if not AI_ENABLED:
+        ai_badge = "<div style='background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#f87171;'>&#9888;&#65039; AI Offline</div>"
+    else:
+        ai_badge = "<div style='background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#818cf8;'>&#129302; AI Active</div>"
+    date_str = datetime.now().strftime("%b %d, %Y")
+    header_html = (
+        "<div style='display:flex;align-items:center;justify-content:space-between;"
+        "margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid #0f0f1a;'>"
+            "<div style='display:flex;align-items:center;gap:16px;'>"
+                + logo_html +
+                "<div>"
+                    "<div style='font-family:Space Grotesk,sans-serif;font-size:20px;font-weight:700;"
+                    "color:#f8fafc;letter-spacing:-0.5px;'>TELERON</div>"
+                    "<div style='font-size:10px;font-weight:600;color:#334155;text-transform:uppercase;"
+                    "letter-spacing:2px;margin-top:1px;'>Central Dispatch</div>"
+                    + title_html +
+                "</div>"
+            "</div>"
+            "<div style='display:flex;align-items:center;gap:10px;'>"
+                "<div style='background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);"
+                "border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#34d399;'>"
+                "&#128994; LIVE</div>"
+                "<div style='background:#050508;border:1px solid #0f0f1a;border-radius:99px;"
+                "padding:6px 14px;font-size:11px;color:#475569;'>" + date_str + "</div>"
+                + ai_badge +
+            "</div>"
+        "</div>"
+    )
+    st.markdown(header_html, unsafe_allow_html=True)
     if show_back:
         if st.button(back_label, key="back_btn"):
             st.session_state.page = "home"
             st.rerun()
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # ANALYTICS PAGE — TOTAL CALLS
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def page_total_calls():
     render_header(show_back=True, page_title="Total Calls Analytics")
     all_jobs = get_jobs()
@@ -391,9 +399,9 @@ def page_total_calls():
     else:
         st.info("No call data yet.")
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # ANALYTICS PAGE — ACTIVE JOBS
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def page_active_jobs():
     render_header(show_back=True, page_title="Active Jobs Analytics")
     all_jobs   = get_jobs()
@@ -475,9 +483,9 @@ def page_active_jobs():
     else:
         st.info("No active dispatched jobs.")
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # ANALYTICS PAGE — PENDING
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def page_pending():
     render_header(show_back=True, page_title="Pending Queue Analytics")
     all_jobs  = get_jobs()
@@ -565,9 +573,9 @@ def page_pending():
     else:
         st.info("No pending jobs at the moment.")
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # ANALYTICS PAGE — TECHNICIANS
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def page_technicians():
     render_header(show_back=True, page_title="Technician Analytics")
     all_techs   = get_technicians()
@@ -647,9 +655,9 @@ def page_technicians():
     else:
         st.info("No technicians added yet.")
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # HOME PAGE
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def page_home():
     render_header()
 
@@ -1094,9 +1102,9 @@ def page_home():
             else:
                 st.markdown("<div style='text-align:center;padding:60px 20px;color:#0f0f1a;'><div style='font-size:42px;margin-bottom:12px;'>👷</div><div style='font-size:13px;font-weight:600;'>No technicians added yet</div></div>", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # ROUTER
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 page = st.session_state.get("page", "home")
 
 if page == "total_calls":
