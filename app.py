@@ -139,6 +139,26 @@ def insert_technician(data): return supabase.table("technicians").insert(data).e
 def update_tech_status(tech_id, status): return supabase.table("technicians").update({"status":status}).eq("id",tech_id).execute()
 def delete_technician(tech_id): return supabase.table("technicians").delete().eq("id",tech_id).execute()
 
+def get_invoices():
+    try:
+        result = supabase.table("invoices").select("*").order("id", desc=True).execute()
+        return pd.DataFrame(result.data) if result.data else pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+def insert_invoice(data):
+    try: return supabase.table("invoices").insert(data).execute()
+    except Exception as e: return {"error": str(e)}
+
+def update_invoice_status(inv_id, status):
+    try: return supabase.table("invoices").update({"status": status}).eq("id", inv_id).execute()
+    except Exception as e: return {"error": str(e)}
+
+def delete_invoice(inv_id):
+    try: return supabase.table("invoices").delete().eq("id", inv_id).execute()
+    except Exception as e: return {"error": str(e)}
+
+
 # --- 5. PAGE STATE ---
 if "page" not in st.session_state:
     st.session_state.page = "home"
@@ -214,6 +234,17 @@ header,footer{visibility:hidden!important;}
 
 .badge-active{background:rgba(16,185,129,0.1);color:#34d399;border:1px solid rgba(16,185,129,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;}
 .badge-inactive{background:rgba(71,85,105,0.1);color:#64748b;border:1px solid rgba(71,85,105,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;}
+.urgency-badge, .sentiment-badge{display:inline-block;font-size:10px;font-weight:700;padding:3px 10px;border-radius:999px;letter-spacing:0.5px;}
+.urgency-low{background:rgba(16,185,129,0.1);color:#34d399;border:1px solid rgba(16,185,129,0.2);}
+.urgency-medium{background:rgba(245,158,11,0.1);color:#fbbf24;border:1px solid rgba(245,158,11,0.2);}
+.urgency-high{background:rgba(249,115,22,0.1);color:#fb923c;border:1px solid rgba(249,115,22,0.2);}
+.urgency-emergency{background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2);}
+.sentiment-calm{background:rgba(16,185,129,0.1);color:#34d399;}
+.sentiment-frustrated{background:rgba(245,158,11,0.1);color:#fbbf24;}
+.sentiment-urgent{background:rgba(249,115,22,0.1);color:#fb923c;}
+.sentiment-angry{background:rgba(239,68,68,0.1);color:#f87171;}
+.sentiment-satisfied{background:rgba(99,102,241,0.1);color:#818cf8;}
+.sentiment-confused{background:rgba(139,92,246,0.1);color:#a78bfa;}
 
 .summary-card{background:#050508;border:1px solid #0f0f1a;border-radius:20px;padding:24px 26px;margin-bottom:16px;transition:border-color 0.2s;}
 .summary-card:hover{border-color:#1a1a2e;}
@@ -289,9 +320,9 @@ def render_header(show_back=False, back_label="← Back to Dashboard", page_titl
         if page_title else ""
     )
     if not AI_ENABLED:
-        ai_badge = "<div style='background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#f87171;'>&#9888;&#65039; AI Offline</div>"
+        ai_badge = "<div style='background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#f87171;'>⚠️ AI Offline</div>"
     else:
-        ai_badge = "<div style='background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#818cf8;'>&#129302; AI Active</div>"
+        ai_badge = "<div style='background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#818cf8;'>🤖 AI Active</div>"
     date_str = datetime.now().strftime("%b %d, %Y")
     header_html = (
         "<div style='display:flex;align-items:center;justify-content:space-between;"
@@ -309,7 +340,7 @@ def render_header(show_back=False, back_label="← Back to Dashboard", page_titl
             "<div style='display:flex;align-items:center;gap:10px;'>"
                 "<div style='background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);"
                 "border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#34d399;'>"
-                "&#128994; LIVE</div>"
+                "🟢 LIVE</div>"
                 "<div style='background:#050508;border:1px solid #0f0f1a;border-radius:99px;"
                 "padding:6px 14px;font-size:11px;color:#475569;'>" + date_str + "</div>"
                 + ai_badge +
@@ -737,7 +768,7 @@ def page_revenue():
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📉 Conversion Funnel</div>", unsafe_allow_html=True)
+        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Conversion Funnel</div>", unsafe_allow_html=True)
         converted_count = int(dispatched * (avg_conv / 100.0)) if avg_conv else 0
         fig2 = dark_fig(300)
         fig2.add_trace(go.Funnel(
@@ -751,7 +782,7 @@ def page_revenue():
         st.plotly_chart(fig2, use_container_width=True, config=CHART_CFG)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Weekly Earnings Trend</div>", unsafe_allow_html=True)
+    st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📊 Weekly Earnings Trend</div>", unsafe_allow_html=True)
     if not all_jobs.empty and "timestamp" in all_jobs.columns and not all_techs.empty:
         all_jobs["date"] = pd.to_datetime(all_jobs["timestamp"], errors="coerce")
         all_jobs["week"] = all_jobs["date"].dt.to_period("W").astype(str)
@@ -946,8 +977,8 @@ def page_home():
 
     st.markdown("<hr style='border-color:#0f0f1a;margin:28px 0 24px;'>", unsafe_allow_html=True)
 
-    tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs([
-        "⚡ DISPATCH","🤖 AI BOT","📋 SUMMARIES","📞 VOICE AI","🗂️ HISTORY","👷 ROSTER"
+    tab1,tab2,tab3,tab4,tab5,tab6,tab7 = st.tabs([
+        "⚡ DISPATCH","🤖 AI BOT","📋 SUMMARIES","📞 VOICE AI","🗂️ HISTORY","👷 ROSTER","📄 INVOICES"
     ])
 
     with tab1:
@@ -1003,9 +1034,9 @@ def page_home():
                         <div class='job-card-name'>{row['customer_name']}</div>
                         <div class='job-card-meta'>
                             <span>📱 {row['phone']}</span>
-                            {'<<span>📍 '+addr[:45]+'</span>' if addr else ''}
+                            {'<span>📍 '+addr[:45]+'</span>' if addr else ''}
                         </div>
-                        {'<<div style="font-size:12px;color:#334155;margin-top:8px;padding-top:8px;border-top:1px solid #0f0f1a;">'+str(row.get("transcript",""))[:80]+'</div>' if row.get("transcript") else ''}
+                        {'<div style="font-size:12px;color:#334155;margin-top:8px;padding-top:8px;border-top:1px solid #0f0f1a;">'+str(row.get("transcript",""))[:80]+'</div>' if row.get("transcript") else ''}
                     </div>""", unsafe_allow_html=True)
                     c1,c2 = st.columns([0.7,0.3])
                     with c1:
@@ -1021,13 +1052,13 @@ def page_home():
         st.markdown("<div class='section-header'>WhatsApp AI Chatbot — Live Preview</div>", unsafe_allow_html=True)
         bc,ic = st.columns([1,1], gap="large")
         with bc:
-            st.markdown("""<<div class='wa-outer'><div class='wa-header'><div class='wa-avatar'>⚡</div><div><div class='wa-name'>Teleron AI Assistant</div><div class='wa-status'>🟢 Online · Powered by Groq AI</div></div></div></div>""", unsafe_allow_html=True)
+            st.markdown("""<div class='wa-outer'><div class='wa-header'><div class='wa-avatar'>⚡</div><div><div class='wa-name'>Teleron AI Assistant</div><div class='wa-status'>🟢 Online · Powered by Groq AI</div></div></div></div>""", unsafe_allow_html=True)
             if "wa_chat" not in st.session_state:
                 st.session_state.wa_chat = [{"role":"assistant","content":"👋 Hello! I'm the Teleron AI Assistant.\n\nI can help you with:\n• 🔧 Booking a service appointment\n• ❓ HVAC, plumbing & electrical questions\n• 🚨 Emergency dispatch\n• 💰 Pricing estimates\n\nHow can I help you today?","time":datetime.now().strftime("%H:%M")}]
             chat_html = "<div class='wa-messages'>"
             for msg in st.session_state.wa_chat:
                 bubble = "wa-bubble-bot" if msg["role"]=="assistant" else "wa-bubble-user"
-                chat_html += f"<div class='{bubble}'>{msg['content'].replace(chr(10),'<br>')}<<div class='wa-time'>{msg.get('time','')}</div></div>"
+                chat_html += f"<div class='{bubble}'>{msg['content'].replace(chr(10),'<br>')}<div class='wa-time'>{msg.get('time','')}</div></div>"
             chat_html += "</div>"
             st.markdown(chat_html, unsafe_allow_html=True)
             user_input = st.text_input("", key="wa_input", placeholder="Type a message...", label_visibility="collapsed")
@@ -1058,7 +1089,7 @@ def page_home():
                 <div style='font-size:11px;font-weight:700;color:#34d399;margin-bottom:6px;'>✦ Powered by Groq — 100% Free</div>
                 <div style='font-size:12px;color:#1e4a3a;line-height:1.7;'>Runs on Llama 3 70B. 14,400 free requests/day — no credit card needed.</div>
             </div>
-            """ , unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
     with tab3:
         st.markdown("<div class='section-header'>AI Call Summaries</div>", unsafe_allow_html=True)
@@ -1077,11 +1108,19 @@ def page_home():
                     if fu!="All" and summary.get("urgency","").lower()!=fu.lower(): continue
                     if fs!="All" and summary.get("sentiment","").lower()!=fs.lower(): continue
                     if fv!="All" and summary.get("service_type","").lower()!=fv.lower(): continue
-                shown+=1
-                uv = summary.get("urgency","Unknown").lower() if summary else "unknown"
-                sv2 = summary.get("sentiment","Unknown").lower() if summary else "unknown"
+                
+                # Define default values for when there's no summary
+                if summary:
+                    uv = summary.get("urgency","Unknown").lower()
+                    sv2 = summary.get("sentiment","Unknown").lower()
+                else:
+                    uv = "unknown"
+                    sv2 = "unknown"
+                
                 uc = {"low":"urgency-low","medium":"urgency-medium","high":"urgency-high","emergency":"urgency-emergency"}.get(uv,"urgency-medium")
                 sc2 = {"calm":"sentiment-calm","frustrated":"sentiment-frustrated","urgent":"sentiment-urgent","angry":"sentiment-angry","satisfied":"sentiment-satisfied","confused":"sentiment-confused"}.get(sv2,"sentiment-calm")
+                
+                shown+=1
                 addr = str(row.get('keywords','') or '—')
                 if summary:
                     fhtml = "".join([f"<div class='followup-item'><span class='followup-dot'>›</span>{item}</div>" for item in summary.get("follow_up",[])])
@@ -1101,7 +1140,7 @@ def page_home():
                         <div class='summary-followup'><div class='summary-followup-label'>Follow-up Actions</div>{fhtml}</div>
                     </div>""", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""<<div class='summary-card'><div class='summary-card-header'><div><div class='summary-customer'>{row['customer_name']}</div><div class='summary-phone'>📱 {row['phone']}</div></div><div class='summary-job-id'>JOB #{row['id']}</div></div><div style='color:#1e293b;font-size:13px;font-style:italic;'>No AI summary yet.</div></div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div class='summary-card'><div class='summary-card-header'><div><div class='summary-customer'>{row['customer_name']}</div><div class='summary-phone'>📱 {row['phone']}</div></div><div class='summary-job-id'>JOB #{row['id']}</div></div><div style='color:#1e293b;font-size:13px;font-style:italic;'>No AI summary yet.</div></div>""", unsafe_allow_html=True)
                 if st.button(f"↺  Regenerate Summary — Job #{row['id']}", key=f"regen_{row['id']}"):
                     t = row.get("transcript","")
                     if t and str(t).strip():
@@ -1121,13 +1160,13 @@ def page_home():
             health = resp2.json()
             groq_ok  = health.get("groq_key_set", False)
             gmail_ok = health.get("gmail_set", False)
-            st.markdown(f"""<<div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.1);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
+            st.markdown(f"""<div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.1);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
                 <div style="width:10px;height:10px;border-radius:50%;background:#10b981;box-shadow:0 0 10px rgba(16,185,129,0.5);flex-shrink:0;"></div>
                 <div><div style="font-size:13px;font-weight:700;color:#34d399;">Webhook Online</div>
                 <div style="font-size:11px;color:#1e4a3a;margin-top:2px;">AI: {"✓" if groq_ok else "✗"} &nbsp;·&nbsp; Email: {"✓" if gmail_ok else "✗"} &nbsp;·&nbsp; {webhook_url}</div></div>
             </div>""", unsafe_allow_html=True)
         except:
-            st.markdown("""<<div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.1);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
+            st.markdown("""<div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.1);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
                 <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0;"></div>
                 <div><div style="font-size:13px;font-weight:700;color:#f87171;">Webhook Offline</div>
                 <div style="font-size:11px;color:#4a1a1a;">Check PythonAnywhere account</div></div>
@@ -1145,10 +1184,10 @@ def page_home():
                     elif urg=="high": high+=1
 
         v1,v2,v3,v4 = st.columns(4)
-        with v1: st.markdown(f"""<<div class='metric-card blue'><div class='metric-card-top'><div class='metric-icon icon-blue'>📞</div><span class='metric-badge badge-blue'>AI Handled</span></div><div class='metric-number'>{total_ai}</div><div class='metric-title'>AI Calls</div></div>""", unsafe_allow_html=True)
-        with v2: st.markdown(f"""<<div class='metric-card purple'><div class='metric-card-top'><div class='metric-icon icon-purple'>🌍</div><span class='metric-badge badge-purple'>Auto Detect</span></div><div class='metric-number'>6+</div><div class='metric-title'>Languages</div></div>""", unsafe_allow_html=True)
-        with v3: st.markdown(f"""<<div class='metric-card amber'><div class='metric-card-top'><div class='metric-icon icon-amber'>⚠️</div><span class='metric-badge badge-amber'>Attention</span></div><div class='metric-number'>{high}</div><div class='metric-title'>High Urgency</div></div>""", unsafe_allow_html=True)
-        with v4: st.markdown(f"""<<div class='metric-card' style='border-color:rgba(239,68,68,0.1);'><div class='metric-card-top'><div class='metric-icon' style='background:rgba(239,68,68,0.1);color:#f87171;'>🚨</div><span class='metric-badge' style='background:rgba(239,68,68,0.1);color:#f87171;'>Immediate</span></div><div class='metric-number'>{emergency}</div><div class='metric-title'>Emergencies</div></div>""", unsafe_allow_html=True)
+        with v1: st.markdown(f"""<div class='metric-card blue'><div class='metric-card-top'><div class='metric-icon icon-blue'>📞</div><span class='metric-badge badge-blue'>AI Handled</span></div><div class='metric-number'>{total_ai}</div><div class='metric-title'>AI Calls</div></div>""", unsafe_allow_html=True)
+        with v2: st.markdown(f"""<div class='metric-card purple'><div class='metric-card-top'><div class='metric-icon icon-purple'>🌍</div><span class='metric-badge badge-purple'>Auto Detect</span></div><div class='metric-number'>6+</div><div class='metric-title'>Languages</div></div>""", unsafe_allow_html=True)
+        with v3: st.markdown(f"""<div class='metric-card amber'><div class='metric-card-top'><div class='metric-icon icon-amber'>⚠️</div><span class='metric-badge badge-amber'>Attention</span></div><div class='metric-number'>{high}</div><div class='metric-title'>High Urgency</div></div>""", unsafe_allow_html=True)
+        with v4: st.markdown(f"""<div class='metric-card' style='border-color:rgba(239,68,68,0.1);'><div class='metric-card-top'><div class='metric-icon' style='background:rgba(239,68,68,0.1);color:#f87171;'>🚨</div><span class='metric-badge' style='background:rgba(239,68,68,0.1);color:#f87171;'>Immediate</span></div><div class='metric-number'>{emergency}</div><div class='metric-title'>Emergencies</div></div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         vc1,vc2 = st.columns([1,1], gap="large")
@@ -1285,6 +1324,259 @@ def page_home():
                 st.dataframe(rdf2, use_container_width=True, hide_index=True)
             else:
                 st.markdown("<div style='text-align:center;padding:60px 20px;color:#0f0f1a;'><div style='font-size:42px;margin-bottom:12px;'>👷</div><div style='font-size:13px;font-weight:600;'>No technicians added yet</div></div>", unsafe_allow_html=True)
+
+    with tab7:
+        st.markdown("<div class='section-header'>Invoice Generation Center</div>", unsafe_allow_html=True)
+
+        inv_left, inv_right = st.columns([1, 1.3], gap="large")
+
+        # --- LEFT: Invoice Builder ---
+        with inv_left:
+            st.markdown("<div style='font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:14px;'>📄 Create New Invoice</div>", unsafe_allow_html=True)
+
+            all_jobs_inv = get_jobs()
+            if all_jobs_inv.empty:
+                st.info("No jobs available to invoice.")
+            else:
+                # Job selector
+                job_opts = {f"#{r['id']} — {r['customer_name']} ({r.get('status', '—')})": r for _, r in all_jobs_inv.iterrows()}
+                selected_job_label = st.selectbox("Select Job", list(job_opts.keys()), key="inv_job_sel")
+                job_row = job_opts[selected_job_label]
+
+                # Auto-fill from job
+                c_name = job_row.get("customer_name", "")
+                c_phone = job_row.get("phone", "")
+                c_addr = str(job_row.get("keywords", "") or "")
+                svc_type = ""
+                if job_row.get("ai_summary"):
+                    try:
+                        s = parse_summary(job_row["ai_summary"])
+                        if s: svc_type = s.get("service_type", "")
+                    except: pass
+
+                inv_num = st.text_input("Invoice #", value=f"INV-{job_row['id']}-{datetime.now().strftime('%y%m%d')}", key="inv_num")
+                inv_date = st.date_input("Invoice Date", value=datetime.now().date(), key="inv_date")
+                due_date = st.date_input("Due Date", value=(datetime.now().date() + pd.Timedelta(days=14)), key="inv_due")
+                tax_rate = st.number_input("Tax Rate (%)", min_value=0.0, max_value=50.0, value=8.0, step=0.5, key="inv_tax")
+
+                st.markdown("<div style='font-size:11px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:1px;margin:16px 0 10px;'>Line Items</div>", unsafe_allow_html=True)
+
+                line_items = []
+                for i in range(5):
+                    c_a, c_b, c_c, c_d = st.columns([2.2, 0.7, 1, 1])
+                    with c_a: desc = st.text_input(f"Description {i+1}", value=svc_type if i==0 else "", placeholder="Service description", key=f"li_desc_{i}", label_visibility="collapsed")
+                    with c_b: qty = st.number_input(f"Qty {i+1}", min_value=0, max_value=999, value=1 if i==0 else 0, step=1, key=f"li_qty_{i}", label_visibility="collapsed")
+                    with c_c: rate = st.number_input(f"Rate {i+1}", min_value=0.0, max_value=99999.0, value=0.0, step=10.0, format="%.2f", key=f"li_rate_{i}", label_visibility="collapsed")
+                    with c_d: amt = round(qty * rate, 2)
+                    if desc.strip() and qty > 0 and rate > 0:
+                        line_items.append({"description": desc, "qty": qty, "rate": rate, "amount": amt})
+
+                subtotal = sum(x["amount"] for x in line_items)
+                tax_amt = round(subtotal * (tax_rate / 100), 2)
+                total = round(subtotal + tax_amt, 2)
+
+                st.markdown(f"""
+                <div style='background:#03030a;border:1px solid #0f0f1a;border-radius:12px;padding:14px 16px;margin-top:10px;'>
+                    <div style='display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:6px;'><span>Subtotal</span><span style='color:#94a3b8;font-weight:600;'>${subtotal:,.2f}</span></div>
+                    <div style='display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:6px;'><span>Tax ({tax_rate}%)</span><span style='color:#94a3b8;font-weight:600;'>${tax_amt:,.2f}</span></div>
+                    <div style='border-top:1px solid #0f0f1a;margin:8px 0;padding-top:8px;display:flex;justify-content:space-between;font-size:15px;font-weight:700;color:#f43f5e;'><span>TOTAL</span><span>${total:,.2f}</span></div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                notes = st.text_area("Payment Terms / Notes", height=68, value="Payment due within 14 days. Make checks payable to Teleron Central Dispatch.", key="inv_notes")
+
+                c_save, c_clear = st.columns(2)
+                with c_save:
+                    if st.button("💾  SAVE INVOICE", use_container_width=True, key="inv_save_btn"):
+                        if not line_items:
+                            st.error("Add at least one line item.")
+                        else:
+                            payload = {
+                                "invoice_number": inv_num,
+                                "job_id": job_row["id"],
+                                "customer_name": c_name,
+                                "phone": c_phone,
+                                "address": c_addr,
+                                "invoice_date": str(inv_date),
+                                "due_date": str(due_date),
+                                "line_items": json.dumps(line_items),
+                                "subtotal": subtotal,
+                                "tax_rate": tax_rate,
+                                "tax_amount": tax_amt,
+                                "total": total,
+                                "notes": notes,
+                                "status": "Sent",
+                                "created_at": datetime.now().isoformat()
+                            }
+                            with st.spinner("Saving..."):
+                                res = insert_invoice(payload)
+                                if isinstance(res, dict) and res.get("error"):
+                                    st.warning(f"Supabase table missing? Storing locally only. {res['error']}")
+                                    if "invoices_local" not in st.session_state:
+                                        st.session_state.invoices_local = []
+                                    payload["id"] = f"LOCAL-{len(st.session_state.invoices_local)+1}"
+                                    st.session_state.invoices_local.append(payload)
+                                    st.success("✅ Invoice saved locally!")
+                                else:
+                                    st.success("✅ Invoice saved to database!")
+                            st.rerun()
+                with c_clear:
+                    if st.button("🗑️  CLEAR", use_container_width=True, key="inv_clear_btn"):
+                        for k in list(st.session_state.keys()):
+                            if k.startswith("li_") or k in ["inv_num","inv_date","inv_due","inv_tax","inv_notes","inv_job_sel"]:
+                                del st.session_state[k]
+                        st.rerun()
+
+        # --- RIGHT: Preview & History ---
+        with inv_right:
+            st.markdown("<div style='font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:14px;'>📖 Live Preview</div>", unsafe_allow_html=True)
+
+            # Build preview from current form values
+            preview_items = []
+            for i in range(5):
+                d = st.session_state.get(f"li_desc_{i}", "")
+                q = st.session_state.get(f"li_qty_{i}", 0)
+                r = st.session_state.get(f"li_rate_{i}", 0.0)
+                if d and q > 0 and r > 0:
+                    preview_items.append({"desc": d, "qty": q, "rate": r, "amt": round(q*r, 2)})
+
+            p_tax = st.session_state.get("inv_tax", 8.0)
+            p_sub = sum(x["amt"] for x in preview_items)
+            p_tax_amt = round(p_sub * (p_tax/100), 2)
+            p_total = round(p_sub + p_tax_amt, 2)
+            p_num = st.session_state.get("inv_num", "INV-000")
+            p_date = st.session_state.get("inv_date", datetime.now().date())
+            p_due = st.session_state.get("inv_due", datetime.now().date())
+            p_notes = st.session_state.get("inv_notes", "")
+
+            # Try to get selected job for preview
+            sel_job_name = "Customer"
+            sel_job_phone = "—"
+            sel_job_addr = "—"
+            try:
+                all_j = get_jobs()
+                if not all_j.empty:
+                    opts = {f"#{r['id']} — {r['customer_name']} ({r.get('status','—')})": r for _,r in all_j.iterrows()}
+                    cur = st.session_state.get("inv_job_sel", list(opts.keys())[0])
+                    if cur in opts:
+                        jr = opts[cur]
+                        sel_job_name = jr.get("customer_name", "Customer")
+                        sel_job_phone = jr.get("phone", "—")
+                        sel_job_addr = str(jr.get("keywords", "") or "—")
+            except: pass
+
+            rows_html = ""
+            for it in preview_items:
+                rows_html += f"""
+                <tr>
+                    <td style='padding:10px 12px;font-size:12px;color:#cbd5e1;border-bottom:1px solid #0f0f1a;'>{it['desc']}</td>
+                    <td style='padding:10px 12px;font-size:12px;color:#94a3b8;text-align:center;border-bottom:1px solid #0f0f1a;'>{it['qty']}</td>
+                    <td style='padding:10px 12px;font-size:12px;color:#94a3b8;text-align:right;border-bottom:1px solid #0f0f1a;'>${it['rate']:,.2f}</td>
+                    <td style='padding:10px 12px;font-size:12px;color:#e2e8f0;text-align:right;font-weight:600;border-bottom:1px solid #0f0f1a;'>${it['amt']:,.2f}</td>
+                </tr>"""
+            if not rows_html:
+                rows_html = "<tr><td colspan='4' style='padding:20px;text-align:center;color:#334155;font-size:12px;'>No line items yet. Add services on the left.</td></tr>"
+
+            preview_html = f"""
+            <div style='background:#050508;border:1px solid #0f0f1a;border-radius:20px;padding:28px 32px;max-width:540px;margin:0 auto;box-shadow:0 20px 60px rgba(0,0,0,0.4);'>
+                <div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;'>
+                    <div>
+                        <div style='font-family:Space Grotesk,sans-serif;font-size:22px;font-weight:700;color:#f8fafc;letter-spacing:-0.5px;'>TELERON</div>
+                        <div style='font-size:10px;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:2px;'>Central Dispatch · HVAC & Home Services</div>
+                    </div>
+                    <div style='text-align:right;'>
+                        <div style='font-size:11px;font-weight:700;color:#f43f5e;text-transform:uppercase;letter-spacing:1px;'>INVOICE</div>
+                        <div style='font-size:16px;font-weight:700;color:#f1f5f9;margin-top:4px;'>{p_num}</div>
+                    </div>
+                </div>
+                <div style='display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #0f0f1a;'>
+                    <div>
+                        <div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;'>Bill To</div>
+                        <div style='font-size:13px;font-weight:700;color:#f1f5f9;'>{sel_job_name}</div>
+                        <div style='font-size:11px;color:#475569;margin-top:3px;'>📱 {sel_job_phone}</div>
+                        <div style='font-size:11px;color:#475569;margin-top:2px;max-width:180px;line-height:1.5;'>📍 {sel_job_addr[:80]}</div>
+                    </div>
+                    <div style='text-align:right;'>
+                        <div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;'>Invoice Details</div>
+                        <div style='font-size:11px;color:#94a3b8;margin-bottom:4px;'>Date: <span style='color:#cbd5e1;'>{p_date}</span></div>
+                        <div style='font-size:11px;color:#94a3b8;'>Due: <span style='color:#cbd5e1;'>{p_due}</span></div>
+                    </div>
+                </div>
+                <table style='width:100%;border-collapse:collapse;margin-bottom:16px;'>
+                    <thead>
+                        <tr style='background:#03030a;'>
+                            <th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:left;border-bottom:1px solid #1a1a2e;'>Description</th>
+                            <th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:center;border-bottom:1px solid #1a1a2e;'>Qty</th>
+                            <th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:right;border-bottom:1px solid #1a1a2e;'>Rate</th>
+                            <th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:right;border-bottom:1px solid #1a1a2e;'>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+                <div style='display:flex;justify-content:flex-end;margin-bottom:20px;'>
+                    <div style='width:220px;'>
+                        <div style='display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:6px;'><span>Subtotal</span><span style='color:#94a3b8;font-weight:600;'>${p_sub:,.2f}</span></div>
+                        <div style='display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:10px;'><span>Tax ({p_tax}%)</span><span style='color:#94a3b8;font-weight:600;'>${p_tax_amt:,.2f}</span></div>
+                        <div style='border-top:1px solid #1a1a2e;padding-top:10px;display:flex;justify-content:space-between;font-size:16px;font-weight:700;color:#f43f5e;'><span>TOTAL</span><span>${p_total:,.2f}</span></div>
+                    </div>
+                </div>
+                <div style='background:#03030a;border:1px solid #0f0f1a;border-radius:10px;padding:12px 14px;margin-bottom:16px;'>
+                    <div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;'>Notes & Payment Terms</div>
+                    <div style='font-size:11px;color:#475569;line-height:1.6;'>{p_notes}</div>
+                </div>
+                <div style='text-align:center;font-size:10px;color:#1e293b;padding-top:8px;border-top:1px solid #0f0f1a;'>
+                    Thank you for choosing Teleron Central Dispatch · support@teleron.com · (555) 019-2834
+                </div>
+            </div>
+            """
+            st.markdown(preview_html, unsafe_allow_html=True)
+
+            st.markdown("<div class='section-header' style='margin-top:28px;'>Invoice History</div>", unsafe_allow_html=True)
+            inv_db = get_invoices()
+            inv_local = pd.DataFrame(st.session_state.get("invoices_local", []))
+            if not inv_db.empty or not inv_local.empty:
+                if not inv_db.empty and not inv_local.empty:
+                    inv_all = pd.concat([inv_db, inv_local], ignore_index=True)
+                elif not inv_db.empty:
+                    inv_all = inv_db
+                else:
+                    inv_all = inv_local
+                inv_all = inv_all.sort_values("created_at", ascending=False) if "created_at" in inv_all.columns else inv_all
+                for _, inv in inv_all.head(20).iterrows():
+                    li = []
+                    try:
+                        raw = inv.get("line_items", "[]")
+                        if isinstance(raw, str): li = json.loads(raw)
+                        else: li = raw
+                    except: li = []
+                    li_count = len(li)
+                    st.markdown(f"""
+                    <div style='background:#050508;border:1px solid #0f0f1a;border-radius:14px;padding:16px 18px;margin-bottom:10px;'>
+                        <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;'>
+                            <div style='font-size:14px;font-weight:700;color:#f1f5f9;'>{inv.get('invoice_number','—')}</div>
+                            <span style='background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;color:#818cf8;'>{inv.get('status','—')}</span>
+                        </div>
+                        <div style='font-size:12px;color:#475569;margin-bottom:6px;'>👤 {inv.get('customer_name','—')} · 📱 {inv.get('phone','—')}</div>
+                        <div style='display:flex;justify-content:space-between;align-items:center;'>
+                            <div style='font-size:11px;color:#334155;'>📅 {inv.get('invoice_date','—')} · {li_count} items · Tax {inv.get('tax_rate',0)}%</div>
+                            <div style='font-size:14px;font-weight:700;color:#f43f5e;'>${inv.get('total',0):,.2f}</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    c1, c2, c3 = st.columns([1,1,1])
+                    with c1:
+                        if st.button("✓  Mark Paid", key=f"inv_pay_{inv.get('id','x')}", use_container_width=True):
+                            update_invoice_status(inv.get('id'), "Paid")
+                            st.success("Marked Paid!"); st.rerun()
+                    with c2:
+                        if st.button("📧  Resend", key=f"inv_resend_{inv.get('id','x')}", use_container_width=True):
+                            st.info("Email integration ready — connect SMTP to send.")
+                    with c3:
+                        if st.button("🗑️  Delete", key=f"inv_del_{inv.get('id','x')}", use_container_width=True):
+                            delete_invoice(inv.get('id'))
+                            st.warning("Deleted."); st.rerun()
+            else:
+                st.markdown("<div style='text-align:center;padding:40px;color:#1e293b;'><div style='font-size:32px;margin-bottom:10px;'>📄</div><div style='font-size:13px;font-weight:600;'>No invoices yet. Create your first one on the left.</div></div>", unsafe_allow_html=True)
 
 # =======================================================================
 # ROUTER
