@@ -65,6 +65,7 @@ def generate_call_summary(transcript: str, customer_name: str, phone: str) -> di
     user_msg = f"""Analyze this customer call transcript and return a JSON summary.
 Customer: {customer_name} | Phone: {phone}
 Transcript: \"\"\"{transcript}\"\"\"
+
 Return ONLY valid JSON:
 {{"problem":"One clear sentence","urgency":"Low/Medium/High/Emergency","service_type":"HVAC/Plumbing/Electrical/Appliance Repair/General Home Service/Unknown","tech_skill":"skill needed","sentiment":"Calm/Frustrated/Urgent/Angry/Satisfied/Confused","follow_up":["item1","item2","item3"]}}"""
     raw = groq_chat([{"role": "user", "content": user_msg}], system=system, max_tokens=700)
@@ -656,6 +657,148 @@ def page_technicians():
         st.info("No technicians added yet.")
 
 # =======================================================================
+# ANALYTICS PAGE — REVENUE & PERFORMANCE
+# =======================================================================
+def page_revenue():
+    render_header(show_back=True, page_title="Revenue & Performance Analytics")
+
+    all_jobs  = get_jobs()
+    all_techs = get_technicians()
+
+    def _pm(v):
+        if pd.isna(v): return 0.0
+        s = str(v).replace("$", "").replace(",", "").replace(" ", "").strip()
+        try: return float(s) if s else 0.0
+        except: return 0.0
+
+    def _pp(v):
+        if pd.isna(v): return 0.0
+        s = str(v).replace("%", "").replace(" ", "").strip()
+        try: return float(s) if s else 0.0
+        except: return 0.0
+
+    if not all_techs.empty:
+        all_techs["avg_ticket_num"] = all_techs["avg_ticket"].apply(_pm)
+        all_techs["conversion_num"] = all_techs["conversion"].apply(_pp)
+
+    tech_revenue = []
+    total_revenue = 0.0
+    if not all_jobs.empty and not all_techs.empty and "assigned_tech" in all_jobs.columns:
+        disp_jobs = all_jobs[all_jobs["status"] == "Dispatched"]
+        for _, tech in all_techs.iterrows():
+            t_jobs = disp_jobs[disp_jobs["assigned_tech"] == tech["name"]]
+            job_count = len(t_jobs)
+            rev = job_count * tech["avg_ticket_num"] * (tech["conversion_num"] / 100.0)
+            tech_revenue.append({
+                "name": tech["name"],
+                "jobs": job_count,
+                "avg_ticket": tech["avg_ticket_num"],
+                "conversion": tech["conversion_num"],
+                "revenue": rev
+            })
+            total_revenue += rev
+
+    tr_df = pd.DataFrame(tech_revenue).sort_values("revenue", ascending=False) if tech_revenue else pd.DataFrame()
+
+    total_jobs   = len(all_jobs)
+    dispatched   = len(all_jobs[all_jobs["status"] == "Dispatched"]) if not all_jobs.empty else 0
+    avg_conv     = all_techs["conversion_num"].mean() if not all_techs.empty and "conversion_num" in all_techs.columns else 0.0
+    top_earner   = tr_df.iloc[0]["name"] if not tr_df.empty else "—"
+    top_revenue  = tr_df.iloc[0]["revenue"] if not tr_df.empty else 0.0
+
+    st.markdown("<div class='section-header'>Revenue Overview</div>", unsafe_allow_html=True)
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:#fb7185;'>${total_revenue:,.0f}</div><div class='analytics-kpi-label'>Total Revenue</div></div>", unsafe_allow_html=True)
+    with k2:
+        st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:#818cf8;'>{avg_conv:.1f}%</div><div class='analytics-kpi-label'>Avg Conversion</div></div>", unsafe_allow_html=True)
+    with k3:
+        st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:#34d399;'>{top_earner}</div><div class='analytics-kpi-label'>Top Earner</div></div>", unsafe_allow_html=True)
+    with k4:
+        st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:#fbbf24;'>${top_revenue:,.0f}</div><div class='analytics-kpi-label'>Top Revenue</div></div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>💰 Revenue per Technician</div>", unsafe_allow_html=True)
+        if not tr_df.empty:
+            fig = dark_fig(300)
+            fig.add_trace(go.Bar(
+                x=tr_df["name"], y=tr_df["revenue"],
+                marker=dict(color="#f43f5e", opacity=0.85, line=dict(color="#fb7185", width=1)),
+                text=[f"${r:,.0f}" for r in tr_df["revenue"]], textposition="outside",
+                textfont=dict(color="#fb7185", size=11)
+            ))
+            fig.update_layout(yaxis=dict(tickprefix="$", tickfont=dict(size=10)))
+            st.plotly_chart(fig, use_container_width=True, config=CHART_CFG)
+        else:
+            st.markdown("<div style='text-align:center;padding:40px;color:#1e293b;'>No revenue data yet</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📉 Conversion Funnel</div>", unsafe_allow_html=True)
+        converted_count = int(dispatched * (avg_conv / 100.0)) if avg_conv else 0
+        fig2 = dark_fig(300)
+        fig2.add_trace(go.Funnel(
+            y=["Total Jobs", "Dispatched", f"Converted ({avg_conv:.0f}%)"],
+            x=[total_jobs, dispatched, converted_count],
+            textposition="inside", textinfo="value+percent initial",
+            marker=dict(color=["#6366f1", "#10b981", "#f43f5e"], line=dict(color="#000", width=2)),
+            connector=dict(line=dict(color="#1e293b", width=1))
+        ))
+        fig2.update_layout(font=dict(size=12), margin=dict(l=20, r=20, t=10, b=0))
+        st.plotly_chart(fig2, use_container_width=True, config=CHART_CFG)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='analytics-chart-box'><div class='analytics-chart-title'>📈 Weekly Earnings Trend</div>", unsafe_allow_html=True)
+    if not all_jobs.empty and "timestamp" in all_jobs.columns and not all_techs.empty:
+        all_jobs["date"] = pd.to_datetime(all_jobs["timestamp"], errors="coerce")
+        all_jobs["week"] = all_jobs["date"].dt.to_period("W").astype(str)
+        disp = all_jobs[all_jobs["status"] == "Dispatched"].copy()
+        if not disp.empty:
+            tech_map = all_techs.set_index("name")[["avg_ticket_num", "conversion_num"]].to_dict("index")
+            def calc_job_revenue(row):
+                tech = row.get("assigned_tech")
+                if tech in tech_map:
+                    t = tech_map[tech]
+                    return t["avg_ticket_num"] * (t["conversion_num"] / 100.0)
+                return 0.0
+            disp["job_revenue"] = disp.apply(calc_job_revenue, axis=1)
+            weekly = disp.groupby("week")["job_revenue"].sum().reset_index().sort_values("week").tail(12)
+            if not weekly.empty:
+                fig3 = dark_fig(260)
+                fig3.add_trace(go.Scatter(
+                    x=weekly["week"], y=weekly["job_revenue"],
+                    mode="lines+markers",
+                    line=dict(color="#f43f5e", width=2.5, shape="spline"),
+                    marker=dict(color="#fb7185", size=8, line=dict(color="#f43f5e", width=1.5)),
+                    fill="tozeroy", fillcolor="rgba(244,63,94,0.07)", name="Earnings"
+                ))
+                fig3.update_layout(yaxis=dict(tickprefix="$", tickfont=dict(size=10)))
+                st.plotly_chart(fig3, use_container_width=True, config=CHART_CFG)
+            else:
+                st.markdown("<div style='text-align:center;padding:40px;color:#1e293b;'>No weekly data yet</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='text-align:center;padding:40px;color:#1e293b;'>No dispatched jobs yet</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div style='text-align:center;padding:40px;color:#1e293b;'>No data available</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-header'>Technician Performance Breakdown</div>", unsafe_allow_html=True)
+    if not tr_df.empty:
+        tr_df["revenue_fmt"] = tr_df["revenue"].apply(lambda x: f"${x:,.0f}")
+        tr_df["avg_ticket_fmt"] = tr_df["avg_ticket"].apply(lambda x: f"${x:,.0f}")
+        tr_df["conversion_fmt"] = tr_df["conversion"].apply(lambda x: f"{x:.1f}%")
+        show_df = tr_df[["name", "jobs", "avg_ticket_fmt", "conversion_fmt", "revenue_fmt"]].rename(columns={
+            "name": "Technician", "jobs": "Dispatched Jobs",
+            "avg_ticket_fmt": "Avg Ticket", "conversion_fmt": "Conversion", "revenue_fmt": "Est. Revenue"
+        })
+        st.dataframe(show_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Add technicians with avg ticket & conversion rates to see revenue data.")
+
+# =======================================================================
 # HOME PAGE
 # =======================================================================
 def page_home():
@@ -678,6 +821,29 @@ def page_home():
     total_bar_pct   = round((dispatched/total)*100)        if total else 0
     pending_bar_pct = round((pending/total)*100)           if total else 0
 
+    # Revenue calculations
+    total_revenue = 0.0
+    avg_conv = 0.0
+    if not all_techs.empty:
+        def _pm(v):
+            if pd.isna(v): return 0.0
+            s = str(v).replace("$", "").replace(",", "").replace(" ", "").strip()
+            try: return float(s) if s else 0.0
+            except: return 0.0
+        def _pp(v):
+            if pd.isna(v): return 0.0
+            s = str(v).replace("%", "").replace(" ", "").strip()
+            try: return float(s) if s else 0.0
+            except: return 0.0
+        all_techs["avg_ticket_num"] = all_techs["avg_ticket"].apply(_pm)
+        all_techs["conversion_num"] = all_techs["conversion"].apply(_pp)
+        avg_conv = all_techs["conversion_num"].mean()
+        if not all_jobs.empty and "assigned_tech" in all_jobs.columns:
+            djobs = all_jobs[all_jobs["status"] == "Dispatched"]
+            for _, t in all_techs.iterrows():
+                tj = djobs[djobs["assigned_tech"] == t["name"]]
+                total_revenue += len(tj) * t["avg_ticket_num"] * (t["conversion_num"] / 100.0)
+
     def queue_label(n):
         if n==0: return "Clear"
         if n<=3: return "Low"
@@ -686,7 +852,7 @@ def page_home():
 
     st.markdown("<div style='font-size:10px;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;'>📊 Live Dashboard — click any card to open full analytics</div>", unsafe_allow_html=True)
 
-    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
 
     with mc1:
         st.markdown(f"""
@@ -760,6 +926,24 @@ def page_home():
             st.session_state.page = "technicians"
             st.rerun()
 
+    with mc5:
+        st.markdown(f"""
+        <div class="metric-card" style="border-color:rgba(244,63,94,0.1);">
+          <div class="metric-card-top"><div class="metric-icon" style="background:rgba(244,63,94,0.12);color:#fb7185;">💰</div><span class="metric-badge" style="background:rgba(244,63,94,0.12);color:#fb7185;">Revenue</span></div>
+          <div class="metric-number">${total_revenue:,.0f}</div>
+          <div class="metric-title">Revenue & Performance</div>
+          <hr class="metric-divider">
+          <div class="metric-row"><span class="metric-row-label"><span class="metric-dot" style="background:#fb7185;"></span>Avg Conversion</span><span class="metric-row-val">{avg_conv:.1f}%</span></div>
+          <div class="metric-row"><span class="metric-row-label"><span class="metric-dot" style="background:#fbbf24;"></span>Dispatched</span><span class="metric-row-val">{dispatched}</span></div>
+          <div class="metric-row"><span class="metric-row-label"><span class="metric-dot" style="background:#34d399;"></span>Techs Active</span><span class="metric-row-val">{tech_active}</span></div>
+          <div class="metric-bar-wrap"><div class="metric-bar-fill" style="width:100%;background:linear-gradient(90deg,#f43f5e,#fb7185);"></div></div>
+          <div class="metric-hint">▼ CLICK TO VIEW ANALYTICS</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("💰 Open Revenue Analytics", key="btn_revenue", use_container_width=True):
+            st.session_state.page = "revenue"
+            st.rerun()
+
     st.markdown("<hr style='border-color:#0f0f1a;margin:28px 0 24px;'>", unsafe_allow_html=True)
 
     tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs([
@@ -819,9 +1003,9 @@ def page_home():
                         <div class='job-card-name'>{row['customer_name']}</div>
                         <div class='job-card-meta'>
                             <span>📱 {row['phone']}</span>
-                            {'<span>📍 '+addr[:45]+'</span>' if addr else ''}
+                            {'<<span>📍 '+addr[:45]+'</span>' if addr else ''}
                         </div>
-                        {'<div style="font-size:12px;color:#334155;margin-top:8px;padding-top:8px;border-top:1px solid #0f0f1a;">'+str(row.get("transcript",""))[:80]+'</div>' if row.get("transcript") else ''}
+                        {'<<div style="font-size:12px;color:#334155;margin-top:8px;padding-top:8px;border-top:1px solid #0f0f1a;">'+str(row.get("transcript",""))[:80]+'</div>' if row.get("transcript") else ''}
                     </div>""", unsafe_allow_html=True)
                     c1,c2 = st.columns([0.7,0.3])
                     with c1:
@@ -837,13 +1021,13 @@ def page_home():
         st.markdown("<div class='section-header'>WhatsApp AI Chatbot — Live Preview</div>", unsafe_allow_html=True)
         bc,ic = st.columns([1,1], gap="large")
         with bc:
-            st.markdown("""<div class='wa-outer'><div class='wa-header'><div class='wa-avatar'>⚡</div><div><div class='wa-name'>Teleron AI Assistant</div><div class='wa-status'>🟢 Online · Powered by Groq AI</div></div></div></div>""", unsafe_allow_html=True)
+            st.markdown("""<<div class='wa-outer'><div class='wa-header'><div class='wa-avatar'>⚡</div><div><div class='wa-name'>Teleron AI Assistant</div><div class='wa-status'>🟢 Online · Powered by Groq AI</div></div></div></div>""", unsafe_allow_html=True)
             if "wa_chat" not in st.session_state:
                 st.session_state.wa_chat = [{"role":"assistant","content":"👋 Hello! I'm the Teleron AI Assistant.\n\nI can help you with:\n• 🔧 Booking a service appointment\n• ❓ HVAC, plumbing & electrical questions\n• 🚨 Emergency dispatch\n• 💰 Pricing estimates\n\nHow can I help you today?","time":datetime.now().strftime("%H:%M")}]
             chat_html = "<div class='wa-messages'>"
             for msg in st.session_state.wa_chat:
                 bubble = "wa-bubble-bot" if msg["role"]=="assistant" else "wa-bubble-user"
-                chat_html += f"<div class='{bubble}'>{msg['content'].replace(chr(10),'<br>')}<div class='wa-time'>{msg.get('time','')}</div></div>"
+                chat_html += f"<div class='{bubble}'>{msg['content'].replace(chr(10),'<br>')}<<div class='wa-time'>{msg.get('time','')}</div></div>"
             chat_html += "</div>"
             st.markdown(chat_html, unsafe_allow_html=True)
             user_input = st.text_input("", key="wa_input", placeholder="Type a message...", label_visibility="collapsed")
@@ -874,7 +1058,7 @@ def page_home():
                 <div style='font-size:11px;font-weight:700;color:#34d399;margin-bottom:6px;'>✦ Powered by Groq — 100% Free</div>
                 <div style='font-size:12px;color:#1e4a3a;line-height:1.7;'>Runs on Llama 3 70B. 14,400 free requests/day — no credit card needed.</div>
             </div>
-            """, unsafe_allow_html=True)
+            """ , unsafe_allow_html=True)
 
     with tab3:
         st.markdown("<div class='section-header'>AI Call Summaries</div>", unsafe_allow_html=True)
@@ -917,7 +1101,7 @@ def page_home():
                         <div class='summary-followup'><div class='summary-followup-label'>Follow-up Actions</div>{fhtml}</div>
                     </div>""", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""<div class='summary-card'><div class='summary-card-header'><div><div class='summary-customer'>{row['customer_name']}</div><div class='summary-phone'>📱 {row['phone']}</div></div><div class='summary-job-id'>JOB #{row['id']}</div></div><div style='color:#1e293b;font-size:13px;font-style:italic;'>No AI summary yet.</div></div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<<div class='summary-card'><div class='summary-card-header'><div><div class='summary-customer'>{row['customer_name']}</div><div class='summary-phone'>📱 {row['phone']}</div></div><div class='summary-job-id'>JOB #{row['id']}</div></div><div style='color:#1e293b;font-size:13px;font-style:italic;'>No AI summary yet.</div></div>""", unsafe_allow_html=True)
                 if st.button(f"↺  Regenerate Summary — Job #{row['id']}", key=f"regen_{row['id']}"):
                     t = row.get("transcript","")
                     if t and str(t).strip():
@@ -937,13 +1121,13 @@ def page_home():
             health = resp2.json()
             groq_ok  = health.get("groq_key_set", False)
             gmail_ok = health.get("gmail_set", False)
-            st.markdown(f"""<div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.1);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
+            st.markdown(f"""<<div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.1);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
                 <div style="width:10px;height:10px;border-radius:50%;background:#10b981;box-shadow:0 0 10px rgba(16,185,129,0.5);flex-shrink:0;"></div>
                 <div><div style="font-size:13px;font-weight:700;color:#34d399;">Webhook Online</div>
                 <div style="font-size:11px;color:#1e4a3a;margin-top:2px;">AI: {"✓" if groq_ok else "✗"} &nbsp;·&nbsp; Email: {"✓" if gmail_ok else "✗"} &nbsp;·&nbsp; {webhook_url}</div></div>
             </div>""", unsafe_allow_html=True)
         except:
-            st.markdown("""<div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.1);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
+            st.markdown("""<<div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.1);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
                 <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0;"></div>
                 <div><div style="font-size:13px;font-weight:700;color:#f87171;">Webhook Offline</div>
                 <div style="font-size:11px;color:#4a1a1a;">Check PythonAnywhere account</div></div>
@@ -961,10 +1145,10 @@ def page_home():
                     elif urg=="high": high+=1
 
         v1,v2,v3,v4 = st.columns(4)
-        with v1: st.markdown(f"""<div class='metric-card blue'><div class='metric-card-top'><div class='metric-icon icon-blue'>📞</div><span class='metric-badge badge-blue'>AI Handled</span></div><div class='metric-number'>{total_ai}</div><div class='metric-title'>AI Calls</div></div>""", unsafe_allow_html=True)
-        with v2: st.markdown(f"""<div class='metric-card purple'><div class='metric-card-top'><div class='metric-icon icon-purple'>🌍</div><span class='metric-badge badge-purple'>Auto Detect</span></div><div class='metric-number'>6+</div><div class='metric-title'>Languages</div></div>""", unsafe_allow_html=True)
-        with v3: st.markdown(f"""<div class='metric-card amber'><div class='metric-card-top'><div class='metric-icon icon-amber'>⚠️</div><span class='metric-badge badge-amber'>Attention</span></div><div class='metric-number'>{high}</div><div class='metric-title'>High Urgency</div></div>""", unsafe_allow_html=True)
-        with v4: st.markdown(f"""<div class='metric-card' style='border-color:rgba(239,68,68,0.1);'><div class='metric-card-top'><div class='metric-icon' style='background:rgba(239,68,68,0.1);color:#f87171;'>🚨</div><span class='metric-badge' style='background:rgba(239,68,68,0.1);color:#f87171;'>Immediate</span></div><div class='metric-number'>{emergency}</div><div class='metric-title'>Emergencies</div></div>""", unsafe_allow_html=True)
+        with v1: st.markdown(f"""<<div class='metric-card blue'><div class='metric-card-top'><div class='metric-icon icon-blue'>📞</div><span class='metric-badge badge-blue'>AI Handled</span></div><div class='metric-number'>{total_ai}</div><div class='metric-title'>AI Calls</div></div>""", unsafe_allow_html=True)
+        with v2: st.markdown(f"""<<div class='metric-card purple'><div class='metric-card-top'><div class='metric-icon icon-purple'>🌍</div><span class='metric-badge badge-purple'>Auto Detect</span></div><div class='metric-number'>6+</div><div class='metric-title'>Languages</div></div>""", unsafe_allow_html=True)
+        with v3: st.markdown(f"""<<div class='metric-card amber'><div class='metric-card-top'><div class='metric-icon icon-amber'>⚠️</div><span class='metric-badge badge-amber'>Attention</span></div><div class='metric-number'>{high}</div><div class='metric-title'>High Urgency</div></div>""", unsafe_allow_html=True)
+        with v4: st.markdown(f"""<<div class='metric-card' style='border-color:rgba(239,68,68,0.1);'><div class='metric-card-top'><div class='metric-icon' style='background:rgba(239,68,68,0.1);color:#f87171;'>🚨</div><span class='metric-badge' style='background:rgba(239,68,68,0.1);color:#f87171;'>Immediate</span></div><div class='metric-number'>{emergency}</div><div class='metric-title'>Emergencies</div></div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         vc1,vc2 = st.columns([1,1], gap="large")
@@ -1115,5 +1299,7 @@ elif page == "pending":
     page_pending()
 elif page == "technicians":
     page_technicians()
+elif page == "revenue":
+    page_revenue()
 else:
     page_home()
