@@ -6,6 +6,7 @@ import base64
 import json
 import requests
 import plotly.graph_objects as go
+import plotly.express as px
 from supabase import create_client, Client
 import io
 import uuid
@@ -172,11 +173,13 @@ def insert_job(data):
     return supabase.table("jobs").insert(data).execute()
 
 def update_job_status(job_id, status):
-    # Only update status, don't try to update timestamp columns that may not exist
     return supabase.table("jobs").update({"status": status}).eq("id", job_id).execute()
 
 def update_job_field(job_id, field, value):
     return supabase.table("jobs").update({field: value}).eq("id", job_id).execute()
+
+def update_job_assignment(job_id, tech_name):
+    return supabase.table("jobs").update({"assigned_tech": tech_name}).eq("id", job_id).execute()
 
 def delete_job(job_id):
     return supabase.table("jobs").delete().eq("id", job_id).execute()
@@ -316,7 +319,6 @@ def log_sms(phone, message, status="Queued"):
         }).execute()
     except: pass
 
-
 # --- 5. PAGE STATE ---
 if "page" not in st.session_state:
     st.session_state.page = "home"
@@ -331,7 +333,272 @@ if "portal_tech_id" not in st.session_state:
 if "portal_verified" not in st.session_state:
     st.session_state.portal_verified = False
 
-# --- 6. SHARED CSS ---
+# --- 6. NEW FEATURE: CALENDAR/GANTT SCHEDULE VIEW ---
+def get_service_type_color(service_type):
+    """Return color for different service types"""
+    colors = {
+        "HVAC": "#6366f1",  # Purple-blue
+        "Plumbing": "#f59e0b",  # Amber
+        "Electrical": "#10b981",  # Green
+        "Appliance Repair": "#ec4899",  # Pink
+        "General Home Service": "#8b5cf6",  # Purple
+        "Emergency": "#ef4444",  # Red
+        "Unknown": "#64748b"  # Gray
+    }
+    return colors.get(service_type, "#6366f1")
+
+def check_conflicts(tech_name, job_start, job_end, existing_jobs_df):
+    """Check if a job conflicts with existing assignments for a technician"""
+    if existing_jobs_df.empty:
+        return False, None
+    
+    tech_jobs = existing_jobs_df[existing_jobs_df['assigned_tech'] == tech_name]
+    if tech_jobs.empty:
+        return False, None
+    
+    for _, job in tech_jobs.iterrows():
+        existing_start = pd.to_datetime(job.get('scheduled_date_start', job.get('scheduled_date')))
+        existing_end = existing_start + timedelta(hours=2)  # Assume 2 hour default duration
+        
+        # Check for overlap
+        if (job_start < existing_end) and (job_end > existing_start):
+            return True, job
+    
+    return False, None
+
+def render_calendar_view():
+    """Render the calendar/Gantt schedule view"""
+    
+    st.markdown("<div class='section-header'>&#128197; Weekly Schedule Calendar</div>", unsafe_allow_html=True)
+    
+    # Get data
+    jobs_df = get_jobs()
+    techs_df = get_technicians()
+    
+    if techs_df.empty:
+        st.info("No technicians found. Please add technicians in the ROSTER tab first.")
+        return
+    
+    # Date range selector
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        week_offset = st.number_input("Week Offset", min_value=-4, max_value=4, value=0, 
+                                       help="0=current week, -1=last week, 1=next week")
+    with col2:
+        view_type = st.selectbox("View Type", ["Weekly Calendar", "Gantt Chart", "Technician Schedule"])
+    with col3:
+        st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 Refresh Schedule", use_container_width=True):
+            st.rerun()
+    
+    # Calculate week dates
+    today = datetime.now().date()
+    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+    week_dates = [start_of_week + timedelta(days=i) for i in range(7)]
+    week_day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    # Prepare jobs for the week
+    week_jobs = []
+    if not jobs_df.empty:
+        for _, job in jobs_df.iterrows():
+            scheduled_date = job.get('scheduled_date')
+            if scheduled_date:
+                try:
+                    job_date = pd.to_datetime(scheduled_date).date()
+                    if start_of_week <= job_date <= start_of_week + timedelta(days=6):
+                        summary = parse_summary(job.get('ai_summary', None))
+                        service_type = summary.get('service_type', 'Unknown') if summary else 'Unknown'
+                        urgency = summary.get('urgency', 'Normal') if summary else 'Normal'
+                        
+                        week_jobs.append({
+                            'id': job['id'],
+                            'customer_name': job['customer_name'],
+                            'phone': job['phone'],
+                            'technician': job.get('assigned_tech', 'Unassigned'),
+                            'date': job_date,
+                            'weekday': job_date.weekday(),
+                            'service_type': service_type,
+                            'urgency': urgency,
+                            'status': job.get('status', 'Pending'),
+                            'address': str(job.get('keywords', ''))[:50]
+                        })
+                except:
+                    pass
+    
+    # Track conflicts for warning display
+    conflicts = []
+    
+    if view_type == "Weekly Calendar":
+        # Create a technician x day matrix
+        unique_techs = techs_df['name'].tolist()
+        unique_techs.append("Unassigned")
+        
+        # Build the table
+        calendar_data = []
+        for tech in unique_techs:
+            row = {'Technician': tech}
+            for i, day_name in enumerate(week_day_names):
+                day_jobs = [j for j in week_jobs if j['technician'] == tech and j['weekday'] == i]
+                if day_jobs:
+                    job_text = "<br>".join([f"• #{j['id']} - {j['customer_name'][:15]} ({j['service_type'][:8]})" for j in day_jobs[:3]])
+                    if len(day_jobs) > 3:
+                        job_text += f"<br>• +{len(day_jobs)-3} more"
+                    row[day_name] = job_text
+                else:
+                    row[day_name] = "—"
+            calendar_data.append(row)
+        
+        calendar_df = pd.DataFrame(calendar_data)
+        st.dataframe(calendar_df, use_container_width=True, height=400)
+        
+        # Color-coded legend
+        st.markdown("""
+        <div style='margin-top:16px; padding:12px; background:#050508; border:1px solid #0f0f1a; border-radius:12px;'>
+            <div style='font-size:11px; font-weight:700; color:#475569; margin-bottom:8px;'>Service Type Colors:</div>
+            <div style='display:flex; gap:16px; flex-wrap:wrap;'>
+                <div><span style='display:inline-block; width:16px; height:16px; background:#6366f1; border-radius:4px;'></span> HVAC</div>
+                <div><span style='display:inline-block; width:16px; height:16px; background:#f59e0b; border-radius:4px;'></span> Plumbing</div>
+                <div><span style='display:inline-block; width:16px; height:16px; background:#10b981; border-radius:4px;'></span> Electrical</div>
+                <div><span style='display:inline-block; width:16px; height:16px; background:#ec4899; border-radius:4px;'></span> Appliance Repair</div>
+                <div><span style='display:inline-block; width:16px; height:16px; background:#ef4444; border-radius:4px;'></span> Emergency</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    elif view_type == "Gantt Chart":
+        st.info("Gantt Chart View - Shows job timeline by technician")
+        
+        # Prepare data for Gantt chart
+        gantt_data = []
+        for job in week_jobs:
+            if job['technician'] != 'Unassigned':
+                # Create a simple Gantt representation
+                job_start = datetime.combine(job['date'], datetime.min.time())
+                job_end = job_start + timedelta(hours=2)  # Assume 2 hour duration
+                gantt_data.append({
+                    'Task': f"#{job['id']} - {job['customer_name'][:20]}",
+                    'Start': job_start,
+                    'Finish': job_end,
+                    'Resource': job['technician'],
+                    'Service': job['service_type']
+                })
+        
+        if gantt_data:
+            gantt_df = pd.DataFrame(gantt_data)
+            
+            # Create Gantt chart using plotly
+            fig = px.timeline(gantt_df, x_start="Start", x_end="Finish", y="Resource", color="Service",
+                              color_discrete_map={
+                                  "HVAC": "#6366f1",
+                                  "Plumbing": "#f59e0b", 
+                                  "Electrical": "#10b981",
+                                  "Appliance Repair": "#ec4899",
+                                  "Emergency": "#ef4444",
+                                  "Unknown": "#64748b"
+                              },
+                              title="Weekly Job Schedule by Technician",
+                              labels={"Resource": "Technician", "Service": "Service Type"})
+            
+            fig.update_layout(
+                template='plotly_dark',
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=400,
+                xaxis_title="Time",
+                yaxis_title="Technician"
+            )
+            
+            # Add hover text with job details
+            fig.update_traces(textposition="inside", textfont=dict(color="white", size=10))
+            
+            st.plotly_chart(fig, use_container_width=True, config=CHART_CFG)
+        else:
+            st.info("No scheduled jobs for the selected week")
+    
+    else:  # Technician Schedule view
+        selected_tech = st.selectbox("Select Technician", techs_df['name'].tolist())
+        
+        tech_jobs = [j for j in week_jobs if j['technician'] == selected_tech]
+        
+        if tech_jobs:
+            st.markdown(f"### {selected_tech}'s Schedule")
+            
+            for day_idx, day_name in enumerate(week_day_names):
+                day_jobs = [j for j in tech_jobs if j['weekday'] == day_idx]
+                if day_jobs:
+                    st.markdown(f"**{day_name}** ({week_dates[day_idx]})")
+                    for job in day_jobs:
+                        color = get_service_type_color(job['service_type'])
+                        urgency_icon = "🚨 " if job['urgency'] == "Emergency" else ""
+                        st.markdown(f"""
+                        <div style='background:#050508; border-left:3px solid {color}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>
+                            <div style='display:flex; justify-content:space-between; align-items:center;'>
+                                <div>
+                                    <strong>#{job['id']}</strong> - {urgency_icon}{job['customer_name']}
+                                </div>
+                                <span style='font-size:10px; color:#475569;'>{job['status']}</span>
+                            </div>
+                            <div style='font-size:11px; color:#64748b; margin-top:4px;'>
+                                📍 {job['address']} | 🔧 {job['service_type']}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
+        else:
+            st.info(f"No jobs scheduled for {selected_tech} this week")
+    
+    # Drag-and-drop reassignment section (using select dropdowns for simplicity)
+    st.markdown("---")
+    st.markdown("<div class='section-header'>&#128259; Job Reassignment (Drag & Drop)</div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        pending_assign_jobs = jobs_df[jobs_df['status'].isin(['Pending Assignment', 'Assigned'])] if not jobs_df.empty else pd.DataFrame()
+        if not pending_assign_jobs.empty:
+            job_options = {f"#{row['id']} - {row['customer_name']} (Current: {row.get('assigned_tech', 'None')})": row['id'] 
+                          for _, row in pending_assign_jobs.iterrows()}
+            selected_job_key = st.selectbox("Select Job to Reassign", list(job_options.keys()))
+            selected_job_id = job_options[selected_job_key]
+        else:
+            st.info("No pending jobs to reassign")
+            selected_job_id = None
+    
+    with col2:
+        tech_options = techs_df['name'].tolist() if not techs_df.empty else []
+        new_tech = st.selectbox("Assign to Technician", tech_options) if tech_options else st.selectbox("Assign to Technician", ["No technicians available"])
+    
+    with col3:
+        if st.button("🔄 Reassign Job", use_container_width=True) and selected_job_id and new_tech:
+            update_job_assignment(selected_job_id, new_tech)
+            st.success(f"Job #{selected_job_id} reassigned to {new_tech}!")
+            st.rerun()
+    
+    # Conflict detection display
+    if not jobs_df.empty and not techs_df.empty:
+        st.markdown("---")
+        st.markdown("<div class='section-header'>&#9888; Conflict Detection</div>", unsafe_allow_html=True)
+        
+        # Check for double-booking conflicts
+        conflict_found = False
+        for tech in techs_df['name'].tolist():
+            tech_jobs = jobs_df[jobs_df['assigned_tech'] == tech]
+            if len(tech_jobs) > 1:
+                dates = []
+                for _, job in tech_jobs.iterrows():
+                    sched_date = job.get('scheduled_date')
+                    if sched_date:
+                        try:
+                            dates.append(pd.to_datetime(sched_date).date())
+                        except:
+                            pass
+                if len(dates) != len(set(dates)):
+                    conflict_found = True
+                    st.warning(f"⚠️ {tech} has multiple jobs scheduled on the same day!")
+        
+        if not conflict_found:
+            st.success("✅ No scheduling conflicts detected")
+
+# --- 7. SHARED CSS (SAME AS BEFORE - KEPT INTACT) ---
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
@@ -521,7 +788,7 @@ hr{border-color:#0f0f1a!important;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 7. PLOTLY DARK THEME HELPER ---
+# --- 8. PLOTLY DARK THEME HELPER ---
 def dark_fig(height=260):
     fig = go.Figure()
     fig.update_layout(
@@ -537,7 +804,7 @@ def dark_fig(height=260):
 
 CHART_CFG = {"displayModeBar": False}
 
-# --- 8. SHARED HEADER ---
+# --- 9. SHARED HEADER ---
 def render_header(show_back=False, back_label="← Back to Dashboard", page_title=None):
     logo_base64 = base64.b64encode(open("logo.png","rb").read()).decode() if os.path.exists("logo.png") else None
     logo_html = (
@@ -601,7 +868,7 @@ def status_pill_html(status):
                  "Invoiced":"#fb7185","Paid":"#34d399"}.get(status, "#475569")
     return f'<span class="status-pill {css}"><span class="metric-dot" style="background:{dot_color};"></span>{status}</span>'
 
-# --- PIPELINE STEPPER HTML (FIXED) ---
+# --- PIPELINE STEPPER HTML ---
 def pipeline_html(current_status, timestamps=None):
     timestamps = timestamps or {}
     steps = [
@@ -615,7 +882,6 @@ def pipeline_html(current_status, timestamps=None):
         ("Paid", "Paid", "time_paid")
     ]
     
-    # Find current index safely
     current_index = -1
     for i, (_, full_status, _) in enumerate(steps):
         if full_status == current_status:
@@ -637,7 +903,7 @@ def pipeline_html(current_status, timestamps=None):
     return html
 
 # =======================================================================
-# ANALYTICS PAGE — TOTAL CALLS
+# ANALYTICS PAGES (KEPT INTACT - Same as before)
 # =======================================================================
 def page_total_calls():
     render_header(show_back=True, page_title="Total Calls Analytics")
@@ -698,9 +964,6 @@ def page_total_calls():
     else:
         st.info("No call data yet.")
 
-# =======================================================================
-# ANALYTICS PAGE — ACTIVE JOBS
-# =======================================================================
 def page_active_jobs():
     render_header(show_back=True, page_title="Active Jobs Analytics")
     all_jobs = get_jobs(); disp_jobs = get_jobs(status_filter="Dispatched"); all_techs = get_technicians()
@@ -746,9 +1009,6 @@ def page_active_jobs():
         st.dataframe(disp_jobs[show_cols], use_container_width=True, hide_index=True)
     else: st.info("No active dispatched jobs.")
 
-# =======================================================================
-# ANALYTICS PAGE — PENDING
-# =======================================================================
 def page_pending():
     render_header(show_back=True, page_title="Pending Queue Analytics")
     all_jobs = get_jobs(); pend_jobs = get_jobs(status_filter="Pending Assignment")
@@ -798,9 +1058,6 @@ def page_pending():
         st.dataframe(pend_jobs[show_cols], use_container_width=True, hide_index=True)
     else: st.info("No pending jobs at the moment.")
 
-# =======================================================================
-# ANALYTICS PAGE — TECHNICIANS
-# =======================================================================
 def page_technicians():
     render_header(show_back=True, page_title="Technician Analytics")
     all_techs = get_technicians(); all_jobs = get_jobs()
@@ -843,9 +1100,6 @@ def page_technicians():
     if not all_techs.empty: st.dataframe(all_techs, use_container_width=True, hide_index=True)
     else: st.info("No technicians added yet.")
 
-# =======================================================================
-# ANALYTICS PAGE — REVENUE & PERFORMANCE
-# =======================================================================
 def page_revenue():
     render_header(show_back=True, page_title="Revenue & Performance Analytics")
     all_jobs = get_jobs(); all_techs = get_technicians()
@@ -999,8 +1253,8 @@ def page_home():
 
     st.markdown("<hr style='border-color:#0f0f1a;margin:28px 0 24px;'>", unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-        "&#9889; DISPATCH","&#129302; AI BOT","&#128203; SUMMARIES","&#128222; VOICE AI","&#128194; HISTORY","&#128119; ROSTER","&#128462; INVOICES","&#128100; CUSTOMERS"
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+        "&#9889; DISPATCH","&#129302; AI BOT","&#128203; SUMMARIES","&#128222; VOICE AI","&#128194; HISTORY","&#128119; ROSTER","&#128462; INVOICES","&#128100; CUSTOMERS","&#128197; SCHEDULE"
     ])
 
     # ===== TAB 1: DISPATCH BOARD =====
@@ -1214,7 +1468,7 @@ def page_home():
                     uc = {"low":"urgency-low","medium":"urgency-medium","high":"urgency-high","emergency":"urgency-emergency"}.get(uv,"urgency-medium")
                     sc2 = {"calm":"sentiment-calm","frustrated":"sentiment-frustrated","urgent":"sentiment-urgent","angry":"sentiment-angry","satisfied":"sentiment-satisfied","confused":"sentiment-confused"}.get(sv2,"sentiment-calm")
                     fhtml = "".join([f"<div class='followup-item'><span class='followup-dot'>&#8250;</span>{item}</div>" for item in summary.get("follow_up",[])])
-                    st.markdown(f'<div class="summary-card"><div class="summary-card-header"><div><div class="summary-customer">{row["customer_name"]}</div><div class="summary-phone">&#128241; {row["phone"]}</div><div style="font-size:10px;color:#a78bfa;margin-top:3px;">&#127758; {summary.get("language","English")}</div></div><div style="text-align:right;"><div class="summary-job-id">JOB #{row["id"]}</div><div style="font-size:11px;color:#1e293b;margin-top:4px;">{str(row.get("timestamp",""))[:10]}</div><div style="margin-top:6px;"><span class="{uc}">{summary.get("urgency","—")}</span></div></div></div><div class="summary-problem"><div class="summary-problem-label">Problem</div><div class="summary-problem-value">{summary.get("problem","—")}</div></div><div class="summary-grid"><div class="summary-field"><div class="summary-field-label">Service</div><div class="summary-field-value">{summary.get("service_type","—")}</div></div><div class="summary-field"><div class="summary-field-label">Tech Skill</div><div class="summary-field-value>{summary.get("tech_skill","—")}</div></div><div class="summary-field"><div class="summary-field-label">Sentiment</div><div class="summary-field-value"><span class="{sc2}">{summary.get("sentiment","—")}</span></div></div><div class="summary-field"><div class="summary-field-label">Address</div><div class="summary-field-value">{str(row.get("keywords","—") or "—")[:28]}</div></div></div><div class="summary-followup"><div class="summary-followup-label">Follow-up</div>{fhtml}</div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="summary-card"><div class="summary-card-header"><div><div class="summary-customer">{row["customer_name"]}</div><div class="summary-phone">&#128241; {row["phone"]}</div><div style="font-size:10px;color:#a78bfa;margin-top:3px;">&#127758; {summary.get("language","English")}</div></div><div style="text-align:right;"><div class="summary-job-id">JOB #{row["id"]}</div><div style="font-size:11px;color:#1e293b;margin-top:4px;">{str(row.get("timestamp",""))[:10]}</div><div style="margin-top:6px;"><span class="{uc}">{summary.get("urgency","—")}</span></div></div></div><div class="summary-problem"><div class="summary-problem-label">Problem</div><div class="summary-problem-value">{summary.get("problem","—")}</div></div><div class="summary-grid"><div class="summary-field"><div class="summary-field-label">Service</div><div class="summary-field-value">{summary.get("service_type","—")}</div></div><div class="summary-field"><div class="summary-field-label">Tech Skill</div><div class="summary-field-value">{summary.get("tech_skill","—")}</div></div><div class="summary-field"><div class="summary-field-label">Sentiment</div><div class="summary-field-value"><span class="{sc2}">{summary.get("sentiment","—")}</span></div></div><div class="summary-field"><div class="summary-field-label">Address</div><div class="summary-field-value">{str(row.get("keywords","—") or "—")[:28]}</div></div></div><div class="summary-followup"><div class="summary-followup-label">Follow-up</div>{fhtml}</div></div>', unsafe_allow_html=True)
                     if row.get("status")=="Pending Assignment":
                         tdf = get_technicians(status_filter="Active")
                         tlist = tdf["name"].tolist() if not tdf.empty else ["No Active Technicians"]
@@ -1378,7 +1632,7 @@ def page_home():
             rows_html = ""
             for it in preview_items:
                 rows_html += f"<tr><td style='padding:10px 12px;font-size:12px;color:#cbd5e1;border-bottom:1px solid #0f0f1a;'>{it['desc']}</td><td style='padding:10px 12px;font-size:12px;color:#94a3b8;text-align:center;border-bottom:1px solid #0f0f1a;'>{it['qty']}</td><td style='padding:10px 12px;font-size:12px;color:#94a3b8;text-align:right;border-bottom:1px solid #0f0f1a;'>${it['rate']:,.2f}</td><td style='padding:10px 12px;font-size:12px;color:#e2e8f0;text-align:right;font-weight:600;border-bottom:1px solid #0f0f1a;'>${it['amt']:,.2f}</td></tr>"
-            if not rows_html: rows_html = "<tr><td colspan='4' style='padding:20px;text-align:center;color:#334155;font-size:12px;'>No line items yet. Add services on the left.</td></tr>"
+            if not rows_html: rows_html = "<tr><td colspan='4' style='padding:20px;text-align:center;color:#334155;font-size:12px;'>No line items yet. Add services on the left.<tr></tr>"
             preview_html = f"""<div style='background:#050508;border:1px solid #0f0f1a;border-radius:20px;padding:28px 32px;max-width:540px;margin:0 auto;box-shadow:0 20px 60px rgba(0,0,0,0.4);'><div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;'><div><div style='font-family:Space Grotesk,sans-serif;font-size:22px;font-weight:700;color:#f8fafc;letter-spacing:-0.5px;'>TELERON</div><div style='font-size:10px;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:2px;'>Central Dispatch · HVAC & Home Services</div></div><div style='text-align:right;'><div style='font-size:11px;font-weight:700;color:#f43f5e;text-transform:uppercase;letter-spacing:1px;'>INVOICE</div><div style='font-size:16px;font-weight:700;color:#f1f5f9;margin-top:4px;'>{p_num}</div></div></div><div style='display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #0f0f1a;'><div><div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;'>Bill To</div><div style='font-size:13px;font-weight:700;color:#f1f5f9;'>{sel_job_name}</div><div style='font-size:11px;color:#475569;margin-top:3px;'>&#128241; {sel_job_phone}</div><div style='font-size:11px;color:#475569;margin-top:2px;max-width:180px;line-height:1.5;'>&#128205; {sel_job_addr[:80]}</div></div><div style='text-align:right;'><div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;'>Invoice Details</div><div style='font-size:11px;color:#94a3b8;margin-bottom:4px;'>Date: <span style='color:#cbd5e1;'>{p_date}</span></div><div style='font-size:11px;color:#94a3b8;'>Due: <span style='color:#cbd5e1;'>{p_due}</span></div></div></div><table style='width:100%;border-collapse:collapse;margin-bottom:16px;'><thead><tr style='background:#03030a;'><th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:left;border-bottom:1px solid #1a1a2e;'>Description</th><th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:center;border-bottom:1px solid #1a1a2e;'>Qty</th><th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:right;border-bottom:1px solid #1a1a2e;'>Rate</th><th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:right;border-bottom:1px solid #1a1a2e;'>Amount</th></tr></thead><tbody>{rows_html}</tbody></table><div style='display:flex;justify-content:flex-end;margin-bottom:20px;'><div style='width:220px;'><div style='display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:6px;'><span>Subtotal</span><span style='color:#94a3b8;font-weight:600;'>${p_sub:,.2f}</span></div><div style='display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:10px;'><span>Tax ({p_tax}%)</span><span style='color:#94a3b8;font-weight:600;'>${p_tax_amt:,.2f}</span></div><div style='border-top:1px solid #1a1a2e;padding-top:10px;display:flex;justify-content:space-between;font-size:16px;font-weight:700;color:#f43f5e;'><span>TOTAL</span><span>${p_total:,.2f}</span></div></div></div><div style='background:#03030a;border:1px solid #0f0f1a;border-radius:10px;padding:12px 14px;margin-bottom:16px;'><div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;'>Notes & Payment Terms</div><div style='font-size:11px;color:#475569;line-height:1.6;'>{p_notes}</div></div><div style='text-align:center;font-size:10px;color:#1e293b;padding-top:8px;border-top:1px solid #0f0f1a;'>Thank you for choosing Teleron Central Dispatch · support@teleron.com · (555) 019-2834</div></div>"""
             st.markdown(preview_html, unsafe_allow_html=True)
             st.markdown("<div class='section-header' style='margin-top:28px;'>Invoice History</div>", unsafe_allow_html=True)
@@ -1485,6 +1739,10 @@ def page_home():
                 st.info("No customers found. Try a different search, or create a job to auto-add customers.")
         else:
             st.markdown("<div style='text-align:center;padding:60px 20px;'><div style='font-size:42px;margin-bottom:16px;'>&#128100;</div><div style='font-size:14px;font-weight:600;color:#334155;margin-bottom:8px;'>Customer CRM</div><div style='font-size:12px;color:#475569;max-width:360px;margin:0 auto;line-height:1.7;'>Search by customer name or phone number to view their complete profile, service history, equipment on file, outstanding invoices, and AI-analyzed call summaries.</div></div>", unsafe_allow_html=True)
+
+    # ===== TAB 9: CALENDAR/SCHEDULE VIEW (NEW FEATURE) =====
+    with tab9:
+        render_calendar_view()
 
 # =======================================================================
 # TECH PORTAL ADMIN — QR Code Generator
