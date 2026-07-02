@@ -332,6 +332,376 @@ if "portal_tech_id" not in st.session_state:
     st.session_state.portal_tech_id = None
 if "portal_verified" not in st.session_state:
     st.session_state.portal_verified = False
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "show_register" not in st.session_state:
+    st.session_state.show_register = False
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+
+def html_block(text):
+    st.markdown(text, unsafe_allow_html=True)
+
+# --- LOGIN GATE ---
+def login_page():
+    ADMIN_EMAIL = "admin@teleron.net"
+    ADMIN_PASSWORD = "Teleron@2025"
+ 
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+    .stApp { background: #000000 !important; }
+    header, footer { visibility: hidden !important; }
+    .block-container { padding: 2rem 1rem !important; max-width: 100% !important; }
+    .stTextInput > div > div > input {
+        background: #0a0a12 !important;
+        border: 1.5px solid #1e1e3a !important;
+        color: #ffffff !important;
+        border-radius: 12px !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        padding: 16px 18px !important;
+    }
+    .stTextInput > div > div > input::placeholder { color: #2d3748 !important; }
+    .stTextInput > div > div > input:focus {
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 0 3px rgba(99,102,241,0.2) !important;
+    }
+    .stTextInput label {
+        color: #94a3b8 !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 2px !important;
+    }
+    .stSelectbox > div > div > div {
+        background: #0a0a12 !important;
+        border: 1.5px solid #1e1e3a !important;
+        color: #ffffff !important;
+        border-radius: 12px !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+    }
+    .stSelectbox label {
+        color: #94a3b8 !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 2px !important;
+    }
+    .stButton > button {
+        border-radius: 12px !important;
+        font-weight: 800 !important;
+        font-size: 13px !important;
+        padding: 16px 20px !important;
+        letter-spacing: 2px !important;
+        text-transform: uppercase !important;
+        border: none !important;
+        width: 100% !important;
+        transition: all 0.3s ease !important;
+    }
+    .primary-btn .stButton > button {
+        background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+        color: #ffffff !important;
+        box-shadow: 0 8px 32px rgba(99,102,241,0.4) !important;
+    }
+    .secondary-btn .stButton > button {
+        background: transparent !important;
+        color: #6366f1 !important;
+        border: 1.5px solid #6366f1 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+ 
+    # TOP HEADER BAR
+    html_block("""
+    <div style="
+        text-align: center;
+        padding: 20px 0 40px 0;
+        border-bottom: 1px solid #0f0f1a;
+        margin-bottom: 48px;
+    ">
+        <div style="
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 48px;
+            font-weight: 700;
+            letter-spacing: -3px;
+            background: linear-gradient(135deg, #818cf8, #c4b5fd, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1;
+        ">TELERON</div>
+        <div style="
+            font-size: 10px;
+            font-weight: 700;
+            color: #2d1f5e;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            margin-top: 8px;
+            font-family: 'Inter', sans-serif;
+        ">HomeOS · Central Dispatch · AI-Powered</div>
+    </div>
+    """)
+ 
+    # TWO COLUMN LAYOUT
+    left, right = st.columns([1.1, 0.9], gap="large")
+ 
+    # LEFT — Brand info
+    with left:
+        html_block("""
+        <div style="
+            background: linear-gradient(160deg, #08001a, #0f0026, #050010);
+            border: 1px solid #1a0a3a;
+            border-radius: 24px;
+            padding: 48px 44px;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        ">
+            <div style="
+                position: absolute; top: -100px; right: -100px;
+                width: 300px; height: 300px; border-radius: 50%;
+                background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 70%);
+            "></div>
+            <div style="
+                font-family: 'Space Grotesk', sans-serif;
+                font-size: 28px;
+                font-weight: 700;
+                color: #f1f5f9;
+                line-height: 1.4;
+                letter-spacing: -0.5px;
+                margin-bottom: 16px;
+            ">The <span style="
+                background: linear-gradient(135deg, #6366f1, #a78bfa);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+            ">Operating System</span><br>for Home Services.</div>
+            <div style="
+                font-size: 13px;
+                color: #475569;
+                line-height: 1.8;
+                font-weight: 500;
+                margin-bottom: 36px;
+                font-family: 'Inter', sans-serif;
+            ">AI answers every call. Jobs dispatch automatically.<br>
+            Technicians arrive faster. Nothing falls through the cracks.</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 36px;">
+                <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 14px; padding: 18px;">
+                    <div style="font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; color: #818cf8;">24/7</div>
+                    <div style="font-size: 10px; color: #334155; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin-top: 4px;">AI Availability</div>
+                </div>
+                <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 14px; padding: 18px;">
+                    <div style="font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; color: #818cf8;">6+</div>
+                    <div style="font-size: 10px; color: #334155; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin-top: 4px;">Languages</div>
+                </div>
+                <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 14px; padding: 18px;">
+                    <div style="font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; color: #818cf8;">0s</div>
+                    <div style="font-size: 10px; color: #334155; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin-top: 4px;">Missed Calls</div>
+                </div>
+                <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 14px; padding: 18px;">
+                    <div style="font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; color: #818cf8;">100%</div>
+                    <div style="font-size: 10px; color: #334155; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin-top: 4px;">Auto Dispatch</div>
+                </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
+                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
+                    AI voice agent handles every inbound call
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
+                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
+                    Emergency detection with instant escalation
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
+                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
+                    Skill-matched technician dispatch in seconds
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
+                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
+                    Live dispatch board, invoicing & analytics
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
+                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
+                    WhatsApp AI chatbot for customer support
+                </div>
+            </div>
+            <div style="
+                font-size: 10px;
+                color: #1e293b;
+                margin-top: 40px;
+                font-family: 'Inter', sans-serif;
+                line-height: 1.8;
+                font-weight: 600;
+                border-top: 1px solid #0f0f1a;
+                padding-top: 20px;
+            ">
+                Teleron Technologies (Private) Limited ·
+                SECP Registered · CUIN 0310559
+            </div>
+        </div>
+        """)
+ 
+    # RIGHT — Login form
+    with right:
+        html_block("""
+        <div style="
+            background: #050508;
+            border: 1px solid #0f0f1a;
+            border-radius: 24px;
+            padding: 48px 40px;
+        ">
+            <div style="
+                font-family: 'Space Grotesk', sans-serif;
+                font-size: 30px;
+                font-weight: 700;
+                color: #f8fafc;
+                letter-spacing: -1px;
+                margin-bottom: 6px;
+            ">Welcome back</div>
+            <div style="
+                font-size: 13px;
+                color: #475569;
+                font-weight: 500;
+                margin-bottom: 32px;
+                font-family: 'Inter', sans-serif;
+            ">Sign in to access your dispatch dashboard.</div>
+        </div>
+        """)
+ 
+        login_type = st.selectbox(
+            "ACCESS LEVEL",
+            ["🏢  Company / HVAC Operator", "🔐  Admin — Teleron Staff"],
+            key="login_type_selector"
+        )
+ 
+        is_admin = "Admin" in login_type
+ 
+        if is_admin:
+            html_block("""
+            <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);
+            border-radius:12px;padding:14px 18px;margin:12px 0;display:flex;align-items:center;gap:12px;">
+                <div style="font-size:20px;">🔐</div>
+                <div>
+                    <div style="font-size:13px;font-weight:700;color:#fb7185;">Admin Access</div>
+                    <div style="font-size:11px;color:#475569;margin-top:2px;">Teleron staff only · Full platform control</div>
+                </div>
+            </div>
+            """)
+        else:
+            html_block("""
+            <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);
+            border-radius:12px;padding:14px 18px;margin:12px 0;display:flex;align-items:center;gap:12px;">
+                <div style="font-size:20px;">🏢</div>
+                <div>
+                    <div style="font-size:13px;font-weight:700;color:#818cf8;">Company Portal</div>
+                    <div style="font-size:11px;color:#475569;margin-top:2px;">Access your dispatch dashboard & operations</div>
+                </div>
+            </div>
+            """)
+ 
+        email = st.text_input("EMAIL", placeholder="your@email.com", key="login_email")
+        password = st.text_input("PASSWORD", type="password", placeholder="••••••••••••", key="login_password")
+ 
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+ 
+        st.markdown('<div class="primary-btn">', unsafe_allow_html=True)
+        login_clicked = st.button("Sign In →", use_container_width=True, key="login_btn")
+        st.markdown('</div>', unsafe_allow_html=True)
+ 
+        if login_clicked:
+            if email and password:
+                if is_admin:
+                    if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
+                        st.session_state.logged_in = True
+                        st.session_state.is_admin = True
+                        st.session_state.user_email = email
+                        st.session_state.company_name = "Teleron Admin"
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid admin credentials.")
+                else:
+                    try:
+                        supabase.auth.sign_in_with_password({"email": email, "password": password})
+                        company = supabase.table("companies").select("*").eq("email", email).execute()
+                        if company.data:
+                            st.session_state.logged_in = True
+                            st.session_state.is_admin = False
+                            st.session_state.user_email = email
+                            st.session_state.company_id = company.data[0]['id']
+                            st.session_state.company_name = company.data[0]['company_name']
+                            st.rerun()
+                        else:
+                            st.error("⚠️ Company not found. Please register first.")
+                    except Exception:
+                        st.error("❌ Invalid email or password.")
+            else:
+                st.error("⚠️ Please enter your email and password.")
+ 
+        if not is_admin:
+            st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+            html_block("""
+            <div style="text-align:center;font-size:13px;color:#334155;font-weight:600;">
+                New to Teleron?
+            </div>
+            """)
+            st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
+            if st.button("Create Company Account", use_container_width=True, key="register_btn"):
+                st.session_state.show_register = True
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+ 
+        html_block("""
+        <div style="text-align:center;font-size:11px;color:#1e293b;margin-top:32px;line-height:2;font-weight:600;">
+            🔒 Protected by Supabase Auth · End-to-end encrypted<br>
+            <span style="color:#6366f1;">info@teleron.net</span>
+        </div>
+        """)
+ 
+ 
+def register_page():
+    st.markdown("""
+    <div style='text-align:center;margin-top:60px;'>
+        <div style='font-family:Space Grotesk,sans-serif;font-size:32px;font-weight:700;color:#f8fafc;'>Create Account</div>
+        <div style='font-size:12px;color:#475569;margin-top:6px;'>Register your company on Teleron</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+ 
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
+        company_name = st.text_input("Company Name", placeholder="ABC HVAC Services", key="reg_company")
+        owner_name = st.text_input("Owner Name", placeholder="John Smith", key="reg_owner")
+        email = st.text_input("Email", placeholder="john@abchvac.com", key="reg_email")
+        password = st.text_input("Password", type="password", key="reg_password")
+        confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
+        st.markdown("<br>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("CREATE ACCOUNT", use_container_width=True, key="create_btn"):
+                if not all([company_name, owner_name, email, password, confirm]):
+                    st.error("Please fill all fields.")
+                elif password != confirm:
+                    st.error("Passwords don't match.")
+                elif len(password) < 6:
+                    st.error("Password must be at least 6 characters.")
+                else:
+                    try:
+                        supabase.auth.sign_up({"email": email, "password": password})
+                        supabase.table("companies").insert({
+                            "company_name": company_name,
+                            "owner_name": owner_name,
+                            "email": email,
+                            "is_active": True
+                        }).execute()
+                        st.success("Account created! Please login.")
+                        st.session_state.show_register = False
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+        with c2:
+            if st.button("BACK TO LOGIN", use_container_width=True, key="back_login_btn"):
+                st.session_state.show_register = False
+                st.rerun()
 
 # --- 6. NEW FEATURE: CALENDAR/GANTT SCHEDULE VIEW ---
 def get_service_type_color(service_type):
@@ -1958,23 +2328,30 @@ def page_customer_crm():
 # =======================================================================
 # ROUTER
 # =======================================================================
-page = st.session_state.get("page", "home")
-
-if page == "total_calls":
-    page_total_calls()
-elif page == "active_jobs":
-    page_active_jobs()
-elif page == "pending":
-    page_pending()
-elif page == "technicians":
-    page_technicians()
-elif page == "revenue":
-    page_revenue()
-elif page == "tech_portal_admin":
-    page_tech_portal_admin()
-elif page == "tech_portal":
-    page_tech_portal()
-elif page == "customer_crm":
-    page_customer_crm()
+# Check login status first
+if not st.session_state.logged_in:
+    if st.session_state.show_register:
+        register_page()
+    else:
+        login_page()
 else:
-    page_home()
+    page = st.session_state.get("page", "home")
+
+    if page == "total_calls":
+        page_total_calls()
+    elif page == "active_jobs":
+        page_active_jobs()
+    elif page == "pending":
+        page_pending()
+    elif page == "technicians":
+        page_technicians()
+    elif page == "revenue":
+        page_revenue()
+    elif page == "tech_portal_admin":
+        page_tech_portal_admin()
+    elif page == "tech_portal":
+        page_tech_portal()
+    elif page == "customer_crm":
+        page_customer_crm()
+    else:
+        page_home()
