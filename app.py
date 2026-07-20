@@ -11,6 +11,11 @@ from supabase import create_client, Client
 import io
 import uuid
 import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import secrets
+import string
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(page_title="Teleron Central Dispatch", page_icon="logo.png", layout="wide")
@@ -319,6 +324,180 @@ def log_sms(phone, message, status="Queued"):
         }).execute()
     except: pass
 
+# --- MARKETPLACE: CUSTOMER AUTH HELPERS ---
+def get_customer_by_email(email):
+    try:
+        result = supabase.table("customers_auth").select("*").eq("email", email).execute()
+        return result.data[0] if result.data else None
+    except: return None
+ 
+def insert_customer_profile(data):
+    try: return supabase.table("customers_auth").insert(data).execute()
+    except Exception as e: return {"error": str(e)}
+ 
+# --- MARKETPLACE: JOB & BIDDING HELPERS ---
+def get_marketplace_jobs(status_filter="open"):
+    try:
+        query = supabase.table("jobs").select("*").eq("is_marketplace_job", True)
+        if status_filter:
+            query = query.eq("bidding_status", status_filter)
+        result = query.order("id", desc=True).execute()
+        return pd.DataFrame(result.data) if result.data else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error fetching marketplace jobs: {e}")
+        return pd.DataFrame()
+ 
+def get_customer_jobs_marketplace(customer_id):
+    try:
+        result = supabase.table("jobs").select("*").eq("posted_by_customer_id", customer_id).order("id", desc=True).execute()
+        return pd.DataFrame(result.data) if result.data else pd.DataFrame()
+    except: return pd.DataFrame()
+ 
+def insert_bid(data):
+    try: return supabase.table("job_bids").insert(data).execute()
+    except Exception as e: return {"error": str(e)}
+ 
+def get_bids_for_job(job_id):
+    try:
+        result = supabase.table("job_bids").select("*").eq("job_id", job_id).order("bid_amount", desc=False).execute()
+        return pd.DataFrame(result.data) if result.data else pd.DataFrame()
+    except: return pd.DataFrame()
+ 
+def get_bids_by_company(company_user_id):
+    try:
+        if not company_user_id:
+            return pd.DataFrame()
+        result = supabase.table("job_bids").select("*").eq("company_user_id", company_user_id).order("id", desc=True).execute()
+        return pd.DataFrame(result.data) if result.data else pd.DataFrame()
+    except: return pd.DataFrame()
+ 
+def accept_bid(bid_id, job_id, company_name):
+    try:
+        supabase.table("job_bids").update({"status": "accepted"}).eq("id", bid_id).execute()
+        supabase.table("job_bids").update({"status": "rejected"}).eq("job_id", job_id).neq("id", bid_id).execute()
+        supabase.table("jobs").update({
+            "bidding_status": "awarded",
+            "assigned_tech": company_name,
+            "status": "Assigned"
+        }).eq("id", job_id).execute()
+        return True
+    except Exception:
+        return False
+
+# =======================================================================
+# LOGIN SYSTEM FUNCTIONS (NEW)
+# =======================================================================
+
+def generate_verification_code():
+    """Generate a 6-digit verification code"""
+    return ''.join(secrets.choice(string.digits) for _ in range(6))
+
+def send_verification_email(to_email, code, company_name):
+    """Send verification code via email"""
+    
+    SMTP_HOST = st.secrets.get("SMTP_HOST", "smtp.hostinger.com")
+    SMTP_PORT = st.secrets.get("SMTP_PORT", 465)
+    SMTP_USER = st.secrets.get("SMTP_EMAIL", "")
+    SMTP_PASSWORD = st.secrets.get("SMTP_PASSWORD", "")
+    
+    if not SMTP_USER or not SMTP_PASSWORD:
+        st.error("❌ Email not configured. Please check secrets.toml")
+        return False
+    
+    subject = "🔐 Teleron - Verify Your Email"
+    
+    html_content = f"""
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; background: #000000; color: #e2e8f0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 40px; background: #050508; border: 1px solid #0f0f1a; border-radius: 20px; }}
+            .header {{ text-align: center; margin-bottom: 30px; border-bottom: 1px solid #0f0f1a; padding-bottom: 20px; }}
+            .header h1 {{ color: #f8fafc; font-family: 'Space Grotesk', sans-serif; letter-spacing: -1px; }}
+            .code-box {{ 
+                background: #0a0a0a; 
+                border: 2px solid #6366f1; 
+                border-radius: 12px; 
+                padding: 20px; 
+                text-align: center;
+                font-family: 'Space Grotesk', monospace;
+                font-size: 36px;
+                font-weight: 700;
+                color: #818cf8;
+                letter-spacing: 8px;
+                margin: 20px 0;
+            }}
+            .footer {{ text-align: center; font-size: 12px; color: #475569; margin-top: 30px; padding-top: 20px; border-top: 1px solid #0f0f1a; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>⚡ TELERON</h1>
+                <p style="color: #64748b; margin-top: 10px;">Verify Your Email Address</p>
+            </div>
+            <p style="color: #94a3b8;">Hello <strong style="color: #f1f5f9;">{company_name}</strong>,</p>
+            <p style="color: #94a3b8;">Thank you for signing up for Teleron Central Dispatch. Please use the verification code below to complete your registration:</p>
+            
+            <div class="code-box">{code}</div>
+            
+            <p style="color: #94a3b8; font-size: 14px;">This code will expire in <strong style="color: #f1f5f9;">15 minutes</strong>.</p>
+            <p style="color: #94a3b8;">If you didn't request this, please ignore this email.</p>
+            
+            <div class="footer">
+                <p style="color: #475569; font-size: 12px;">
+                    <strong style="color: #64748b;">Teleron Technologies</strong><br>
+                    AI-Powered Dispatch for Home Services<br>
+                    <span style="color: #334155;">© 2025 All rights reserved.</span>
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['From'] = f"Teleron Dispatch <{SMTP_USER}>"
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(html_content, 'html'))
+        
+        # Connect to SMTP server
+        if SMTP_PORT == 465:
+            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT)
+        else:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+            server.starttls()
+        
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Email error: {str(e)}")
+        return False
+
+def check_trial_status(email):
+    """Check if user's trial is still active"""
+    try:
+        result = supabase.table("users").select("*").eq("email", email).execute()
+        if result.data:
+            user = result.data[0]
+            trial_end = pd.to_datetime(user['trial_end_date'])
+            days_left = (trial_end - datetime.now()).days
+            
+            if days_left < 0 and user['subscription_status'] == 'trial':
+                return {"status": "expired", "days_left": 0}
+            elif days_left <= 7:
+                return {"status": "trial_active", "days_left": days_left}
+            else:
+                return {"status": "active", "days_left": days_left}
+    except:
+        pass
+    return {"status": "unknown", "days_left": 0}
+
 # --- 5. PAGE STATE ---
 if "page" not in st.session_state:
     st.session_state.page = "home"
@@ -338,15 +517,44 @@ if "show_register" not in st.session_state:
     st.session_state.show_register = False
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
+if "registration_step" not in st.session_state:
+    st.session_state.registration_step = 1
 
-def html_block(text):
-    st.markdown(text, unsafe_allow_html=True)
+if "is_customer" not in st.session_state:
+    st.session_state.is_customer = False
+if "customer_id" not in st.session_state:
+    st.session_state.customer_id = None
+if "customer_name" not in st.session_state:
+    st.session_state.customer_name = None
+if "customer_phone" not in st.session_state:
+    st.session_state.customer_phone = None
+if "show_customer_register" not in st.session_state:
+    st.session_state.show_customer_register = False
 
-# --- LOGIN GATE ---
+def safe_sign_up(email, password):
+    """Returns (user_id, error_message). Handles orphaned/duplicate auth records."""
+    try:
+        resp = supabase.auth.sign_up({"email": email, "password": password})
+        if resp.user:
+            return resp.user.id, None
+        return None, "Signup failed — no user returned."
+    except Exception as e:
+        msg = str(e).lower()
+        if "already registered" in msg or "already exists" in msg or "user_already_exists" in msg:
+            try:
+                signin = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                if signin.user:
+                    return signin.user.id, None
+            except Exception:
+                pass
+            return None, "This email is already registered. Try logging in, or use a different email."
+        return None, f"Signup error: {e}"
+
+# --- 6. LOGIN PAGE ---
 def login_page():
     ADMIN_EMAIL = "admin@teleron.net"
     ADMIN_PASSWORD = "Teleron@2025"
- 
+    
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
@@ -412,79 +620,25 @@ def login_page():
     }
     </style>
     """, unsafe_allow_html=True)
- 
+    
     # TOP HEADER BAR
-    html_block("""
-    <div style="
-        text-align: center;
-        padding: 20px 0 40px 0;
-        border-bottom: 1px solid #0f0f1a;
-        margin-bottom: 48px;
-    ">
-        <div style="
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 48px;
-            font-weight: 700;
-            letter-spacing: -3px;
-            background: linear-gradient(135deg, #818cf8, #c4b5fd, #a78bfa);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            line-height: 1;
-        ">TELERON</div>
-        <div style="
-            font-size: 10px;
-            font-weight: 700;
-            color: #2d1f5e;
-            text-transform: uppercase;
-            letter-spacing: 5px;
-            margin-top: 8px;
-            font-family: 'Inter', sans-serif;
-        ">HomeOS · Central Dispatch · AI-Powered</div>
+    st.markdown("""
+    <div style="text-align: center; padding: 20px 0 40px 0; border-bottom: 1px solid #0f0f1a; margin-bottom: 48px;">
+        <div style="font-family: 'Space Grotesk', sans-serif; font-size: 48px; font-weight: 700; letter-spacing: -3px; background: linear-gradient(135deg, #818cf8, #c4b5fd, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1;">TELERON</div>
+        <div style="font-size: 10px; font-weight: 700; color: #2d1f5e; text-transform: uppercase; letter-spacing: 5px; margin-top: 8px; font-family: 'Inter', sans-serif;">HomeOS · Central Dispatch · AI-Powered</div>
     </div>
-    """)
- 
+    """, unsafe_allow_html=True)
+    
     # TWO COLUMN LAYOUT
     left, right = st.columns([1.1, 0.9], gap="large")
- 
+    
     # LEFT — Brand info
     with left:
-        html_block("""
-        <div style="
-            background: linear-gradient(160deg, #08001a, #0f0026, #050010);
-            border: 1px solid #1a0a3a;
-            border-radius: 24px;
-            padding: 48px 44px;
-            height: 100%;
-            position: relative;
-            overflow: hidden;
-        ">
-            <div style="
-                position: absolute; top: -100px; right: -100px;
-                width: 300px; height: 300px; border-radius: 50%;
-                background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 70%);
-            "></div>
-            <div style="
-                font-family: 'Space Grotesk', sans-serif;
-                font-size: 28px;
-                font-weight: 700;
-                color: #f1f5f9;
-                line-height: 1.4;
-                letter-spacing: -0.5px;
-                margin-bottom: 16px;
-            ">The <span style="
-                background: linear-gradient(135deg, #6366f1, #a78bfa);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-            ">Operating System</span><br>for Home Services.</div>
-            <div style="
-                font-size: 13px;
-                color: #475569;
-                line-height: 1.8;
-                font-weight: 500;
-                margin-bottom: 36px;
-                font-family: 'Inter', sans-serif;
-            ">AI answers every call. Jobs dispatch automatically.<br>
-            Technicians arrive faster. Nothing falls through the cracks.</div>
+        st.markdown("""
+        <div style="background: linear-gradient(160deg, #08001a, #0f0026, #050010); border: 1px solid #1a0a3a; border-radius: 24px; padding: 48px 44px; height: 100%; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: -100px; right: -100px; width: 300px; height: 300px; border-radius: 50%; background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 70%);"></div>
+            <div style="font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; color: #f1f5f9; line-height: 1.4; letter-spacing: -0.5px; margin-bottom: 16px;">The <span style="background: linear-gradient(135deg, #6366f1, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Operating System</span><br>for Home Services.</div>
+            <div style="font-size: 13px; color: #475569; line-height: 1.8; font-weight: 500; margin-bottom: 36px; font-family: 'Inter', sans-serif;">AI answers every call. Jobs dispatch automatically.<br>Technicians arrive faster. Nothing falls through the cracks.</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 36px;">
                 <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 14px; padding: 18px;">
                     <div style="font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; color: #818cf8;">24/7</div>
@@ -503,111 +657,57 @@ def login_page():
                     <div style="font-size: 10px; color: #334155; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin-top: 4px;">Auto Dispatch</div>
                 </div>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 12px;">
-                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
-                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
-                    AI voice agent handles every inbound call
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
-                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
-                    Emergency detection with instant escalation
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
-                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
-                    Skill-matched technician dispatch in seconds
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
-                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
-                    Live dispatch board, invoicing & analytics
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; font-weight: 500;">
-                    <div style="width: 6px; height: 6px; border-radius: 50%; background: #6366f1; flex-shrink: 0;"></div>
-                    WhatsApp AI chatbot for customer support
-                </div>
-            </div>
-            <div style="
-                font-size: 10px;
-                color: #1e293b;
-                margin-top: 40px;
-                font-family: 'Inter', sans-serif;
-                line-height: 1.8;
-                font-weight: 600;
-                border-top: 1px solid #0f0f1a;
-                padding-top: 20px;
-            ">
-                Teleron Technologies (Private) Limited ·
-                SECP Registered · CUIN 0310559
+            <div style="font-size: 10px; color: #1e293b; margin-top: 40px; font-family: 'Inter', sans-serif; line-height: 1.8; font-weight: 600; border-top: 1px solid #0f0f1a; padding-top: 20px;">
+                Teleron Technologies (Private) Limited · SECP Registered · CUIN 0310559
             </div>
         </div>
-        """)
- 
+        """, unsafe_allow_html=True)
+    
     # RIGHT — Login form
     with right:
-        html_block("""
-        <div style="
-            background: #050508;
-            border: 1px solid #0f0f1a;
-            border-radius: 24px;
-            padding: 48px 40px;
-        ">
-            <div style="
-                font-family: 'Space Grotesk', sans-serif;
-                font-size: 30px;
-                font-weight: 700;
-                color: #f8fafc;
-                letter-spacing: -1px;
-                margin-bottom: 6px;
-            ">Welcome back</div>
-            <div style="
-                font-size: 13px;
-                color: #475569;
-                font-weight: 500;
-                margin-bottom: 32px;
-                font-family: 'Inter', sans-serif;
-            ">Sign in to access your dispatch dashboard.</div>
+        st.markdown("""
+        <div style="background: #050508; border: 1px solid #0f0f1a; border-radius: 24px; padding: 48px 40px;">
+            <div style="font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 700; color: #f8fafc; letter-spacing: -1px; margin-bottom: 6px;">Welcome back</div>
+            <div style="font-size: 13px; color: #475569; font-weight: 500; margin-bottom: 32px; font-family: 'Inter', sans-serif;">Sign in to access your dispatch dashboard.</div>
         </div>
-        """)
- 
-        login_type = st.selectbox(
-            "ACCESS LEVEL",
-            ["🏢  Company / HVAC Operator", "🔐  Admin — Teleron Staff"],
-            key="login_type_selector"
-        )
- 
+        """, unsafe_allow_html=True)
+        
+        login_type = st.selectbox("ACCESS LEVEL", ["🏢  Company / HVAC Operator", "🏠  Homeowner / Customer", "🔐  Admin — Teleron Staff"], key="login_type_selector")
+        
         is_admin = "Admin" in login_type
- 
+        is_customer_login = "Homeowner" in login_type
+        
         if is_admin:
-            html_block("""
-            <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);
-            border-radius:12px;padding:14px 18px;margin:12px 0;display:flex;align-items:center;gap:12px;">
+            st.markdown("""
+            <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:12px;padding:14px 18px;margin:12px 0;display:flex;align-items:center;gap:12px;">
                 <div style="font-size:20px;">🔐</div>
-                <div>
-                    <div style="font-size:13px;font-weight:700;color:#fb7185;">Admin Access</div>
-                    <div style="font-size:11px;color:#475569;margin-top:2px;">Teleron staff only · Full platform control</div>
-                </div>
+                <div><div style="font-size:13px;font-weight:700;color:#fb7185;">Admin Access</div><div style="font-size:11px;color:#475569;margin-top:2px;">Teleron staff only · Full platform control</div></div>
             </div>
-            """)
+            """, unsafe_allow_html=True)
+        elif is_customer_login:
+            st.markdown("""
+            <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:12px;padding:14px 18px;margin:12px 0;display:flex;align-items:center;gap:12px;">
+                <div style="font-size:20px;">🏠</div>
+                <div><div style="font-size:13px;font-weight:700;color:#34d399;">Homeowner Portal</div><div style="font-size:11px;color:#475569;margin-top:2px;">Post jobs & get competitive bids from verified companies</div></div>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            html_block("""
-            <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);
-            border-radius:12px;padding:14px 18px;margin:12px 0;display:flex;align-items:center;gap:12px;">
+            st.markdown("""
+            <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:12px;padding:14px 18px;margin:12px 0;display:flex;align-items:center;gap:12px;">
                 <div style="font-size:20px;">🏢</div>
-                <div>
-                    <div style="font-size:13px;font-weight:700;color:#818cf8;">Company Portal</div>
-                    <div style="font-size:11px;color:#475569;margin-top:2px;">Access your dispatch dashboard & operations</div>
-                </div>
+                <div><div style="font-size:13px;font-weight:700;color:#818cf8;">Company Portal</div><div style="font-size:11px;color:#475569;margin-top:2px;">Access your dispatch dashboard & operations</div></div>
             </div>
-            """)
- 
+            """, unsafe_allow_html=True)
+        
         email = st.text_input("EMAIL", placeholder="your@email.com", key="login_email")
         password = st.text_input("PASSWORD", type="password", placeholder="••••••••••••", key="login_password")
- 
+        
         st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
- 
+        
         st.markdown('<div class="primary-btn">', unsafe_allow_html=True)
         login_clicked = st.button("Sign In →", use_container_width=True, key="login_btn")
         st.markdown('</div>', unsafe_allow_html=True)
- 
+        
         if login_clicked:
             if email and password:
                 if is_admin:
@@ -622,353 +722,358 @@ def login_page():
                 else:
                     try:
                         supabase.auth.sign_in_with_password({"email": email, "password": password})
-                        company = supabase.table("companies").select("*").eq("email", email).execute()
+                        company = supabase.table("users").select("*").eq("email", email).execute()
                         if company.data:
-                            st.session_state.logged_in = True
-                            st.session_state.is_admin = False
-                            st.session_state.user_email = email
-                            st.session_state.company_id = company.data[0]['id']
-                            st.session_state.company_name = company.data[0]['company_name']
-                            st.rerun()
+                            user = company.data[0]
+                            if not user.get('is_verified', False):
+                                st.error("❌ Please verify your email before logging in.")
+                            else:
+                                trial_check = check_trial_status(email)
+                                if trial_check['status'] == 'expired':
+                                    st.error("❌ Your free trial has expired. Please contact support to upgrade.")
+                                else:
+                                    st.session_state.logged_in = True
+                                    st.session_state.is_admin = False
+                                    st.session_state.user_email = email
+                                    st.session_state.user_id = user['id']
+                                    st.session_state.company_name = user['company_name']
+                                    if trial_check['status'] == 'trial_active':
+                                        st.info(f"⏳ {trial_check['days_left']} days left in your free trial")
+                                    st.rerun()
                         else:
                             st.error("⚠️ Company not found. Please register first.")
-                    except Exception:
+                    except Exception as e:
                         st.error("❌ Invalid email or password.")
             else:
                 st.error("⚠️ Please enter your email and password.")
- 
+        
         if not is_admin:
             st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
-            html_block("""
+            st.markdown("""
             <div style="text-align:center;font-size:13px;color:#334155;font-weight:600;">
-                New to Teleron?
+                New to Teleron? Start your <span style="color:#6366f1;">7-day free trial</span>
             </div>
-            """)
+            """, unsafe_allow_html=True)
             st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
-            if st.button("Create Company Account", use_container_width=True, key="register_btn"):
+            if st.button("Start Free Trial →", use_container_width=True, key="register_btn"):
                 st.session_state.show_register = True
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
- 
-        html_block("""
+        
+        st.markdown("""
         <div style="text-align:center;font-size:11px;color:#1e293b;margin-top:32px;line-height:2;font-weight:600;">
             🔒 Protected by Supabase Auth · End-to-end encrypted<br>
             <span style="color:#6366f1;">info@teleron.net</span>
         </div>
-        """)
- 
- 
+        """, unsafe_allow_html=True)
+
+# --- 7. REGISTRATION PAGE ---
 def register_page():
     st.markdown("""
-    <div style='text-align:center;margin-top:60px;'>
-        <div style='font-family:Space Grotesk,sans-serif;font-size:32px;font-weight:700;color:#f8fafc;'>Create Account</div>
-        <div style='font-size:12px;color:#475569;margin-top:6px;'>Register your company on Teleron</div>
+    <style>
+    .register-container {
+        max-width: 500px;
+        margin: 0 auto;
+        padding: 40px;
+        background: #050508;
+        border: 1px solid #0f0f1a;
+        border-radius: 24px;
+    }
+    .step-indicator {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 30px;
+    }
+    .step-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #1a1a2e;
+        transition: all 0.3s ease;
+    }
+    .step-dot.active {
+        background: #6366f1;
+        box-shadow: 0 0 20px rgba(99,102,241,0.3);
+    }
+    .step-dot.done {
+        background: #10b981;
+    }
+    .code-display {
+        background: #0a0a0a;
+        border: 2px solid #6366f1;
+        border-radius: 12px;
+        padding: 16px;
+        text-align: center;
+        font-family: 'Space Grotesk', monospace;
+        font-size: 32px;
+        font-weight: 700;
+        color: #818cf8;
+        letter-spacing: 6px;
+        margin: 16px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<div style='text-align:center;margin-top:40px;'>", unsafe_allow_html=True)
+    st.markdown("<div style='font-family:Space Grotesk,sans-serif;font-size:32px;font-weight:700;color:#f8fafc;'>⚡ Start Free Trial</div>")
+    st.markdown("<div style='font-size:13px;color:#475569;margin-top:6px;'>7 days free · No credit card required</div>")
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    step = st.session_state.get("registration_step", 1)
+    st.markdown(f"""
+    <div class="step-indicator">
+        <div class="step-dot {'active' if step >= 1 else ''}"></div>
+        <div class="step-dot {'active' if step >= 2 else ''}"></div>
+        <div class="step-dot {'active' if step >= 3 else ''}"></div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
- 
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        company_name = st.text_input("Company Name", placeholder="ABC HVAC Services", key="reg_company")
-        owner_name = st.text_input("Owner Name", placeholder="John Smith", key="reg_owner")
-        email = st.text_input("Email", placeholder="john@abchvac.com", key="reg_email")
-        password = st.text_input("Password", type="password", key="reg_password")
-        confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
+    
+    # ===== STEP 1: COMPANY DETAILS =====
+    if step == 1:
+        st.markdown("<div style='text-align:center;color:#64748b;font-size:13px;'>Step 1 of 3 - Company Details</div>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("CREATE ACCOUNT", use_container_width=True, key="create_btn"):
+        
+        col1, col2, col3 = st.columns([1, 1.5, 1])
+        with col2:
+            company_name = st.text_input("Company Name", placeholder="ABC HVAC Services", key="reg_company")
+            owner_name = st.text_input("Owner Name", placeholder="John Smith", key="reg_owner")
+            email = st.text_input("Work Email", placeholder="john@abchvac.com", key="reg_email")
+            phone = st.text_input("Phone Number", placeholder="+1 (555) 000-0000", key="reg_phone")
+            password = st.text_input("Password", type="password", placeholder="Min 8 characters", key="reg_password")
+            confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if st.button("Continue →", use_container_width=True, key="reg_continue"):
                 if not all([company_name, owner_name, email, password, confirm]):
                     st.error("Please fill all fields.")
                 elif password != confirm:
                     st.error("Passwords don't match.")
-                elif len(password) < 6:
-                    st.error("Password must be at least 6 characters.")
+                elif len(password) < 8:
+                    st.error("Password must be at least 8 characters.")
+                elif "@" not in email:
+                    st.error("Please enter a valid email address.")
                 else:
-                    try:
-                        supabase.auth.sign_up({"email": email, "password": password})
-                        supabase.table("companies").insert({
+                    # Check if email already registered
+                    existing = supabase.table("users").select("*").eq("email", email).execute()
+                    if existing.data:
+                        st.error("This email is already registered. Please login.")
+                    else:
+                        # Generate verification code
+                        verification_code = generate_verification_code()
+                        
+                        # Store data in session
+                        st.session_state.reg_data = {
                             "company_name": company_name,
                             "owner_name": owner_name,
                             "email": email,
-                            "is_active": True
-                        }).execute()
-                        st.success("Account created! Please login.")
-                        st.session_state.show_register = False
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
-        with c2:
-            if st.button("BACK TO LOGIN", use_container_width=True, key="back_login_btn"):
-                st.session_state.show_register = False
-                st.rerun()
-
-# --- 6. NEW FEATURE: CALENDAR/GANTT SCHEDULE VIEW ---
-def get_service_type_color(service_type):
-    """Return color for different service types"""
-    colors = {
-        "HVAC": "#6366f1",  # Purple-blue
-        "Plumbing": "#f59e0b",  # Amber
-        "Electrical": "#10b981",  # Green
-        "Appliance Repair": "#ec4899",  # Pink
-        "General Home Service": "#8b5cf6",  # Purple
-        "Emergency": "#ef4444",  # Red
-        "Unknown": "#64748b"  # Gray
-    }
-    return colors.get(service_type, "#6366f1")
-
-def check_conflicts(tech_name, job_start, job_end, existing_jobs_df):
-    """Check if a job conflicts with existing assignments for a technician"""
-    if existing_jobs_df.empty:
-        return False, None
-    
-    tech_jobs = existing_jobs_df[existing_jobs_df['assigned_tech'] == tech_name]
-    if tech_jobs.empty:
-        return False, None
-    
-    for _, job in tech_jobs.iterrows():
-        existing_start = pd.to_datetime(job.get('scheduled_date_start', job.get('scheduled_date')))
-        existing_end = existing_start + timedelta(hours=2)  # Assume 2 hour default duration
-        
-        # Check for overlap
-        if (job_start < existing_end) and (job_end > existing_start):
-            return True, job
-    
-    return False, None
-
-def render_calendar_view():
-    """Render the calendar/Gantt schedule view"""
-    
-    st.markdown("<div class='section-header'>&#128197; Weekly Schedule Calendar</div>", unsafe_allow_html=True)
-    
-    # Get data
-    jobs_df = get_jobs()
-    techs_df = get_technicians()
-    
-    if techs_df.empty:
-        st.info("No technicians found. Please add technicians in the ROSTER tab first.")
-        return
-    
-    # Date range selector
-    col1, col2, col3 = st.columns([1, 1, 2])
-    with col1:
-        week_offset = st.number_input("Week Offset", min_value=-4, max_value=4, value=0, 
-                                       help="0=current week, -1=last week, 1=next week")
-    with col2:
-        view_type = st.selectbox("View Type", ["Weekly Calendar", "Gantt Chart", "Technician Schedule"])
-    with col3:
-        st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-        if st.button("🔄 Refresh Schedule", use_container_width=True):
-            st.rerun()
-    
-    # Calculate week dates
-    today = datetime.now().date()
-    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
-    week_dates = [start_of_week + timedelta(days=i) for i in range(7)]
-    week_day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    
-    # Prepare jobs for the week
-    week_jobs = []
-    if not jobs_df.empty:
-        for _, job in jobs_df.iterrows():
-            scheduled_date = job.get('scheduled_date')
-            if scheduled_date:
-                try:
-                    job_date = pd.to_datetime(scheduled_date).date()
-                    if start_of_week <= job_date <= start_of_week + timedelta(days=6):
-                        summary = parse_summary(job.get('ai_summary', None))
-                        service_type = summary.get('service_type', 'Unknown') if summary else 'Unknown'
-                        urgency = summary.get('urgency', 'Normal') if summary else 'Normal'
+                            "phone": phone,
+                            "password": password
+                        }
+                        st.session_state.verification_code = verification_code
                         
-                        week_jobs.append({
-                            'id': job['id'],
-                            'customer_name': job['customer_name'],
-                            'phone': job['phone'],
-                            'technician': job.get('assigned_tech', 'Unassigned'),
-                            'date': job_date,
-                            'weekday': job_date.weekday(),
-                            'service_type': service_type,
-                            'urgency': urgency,
-                            'status': job.get('status', 'Pending'),
-                            'address': str(job.get('keywords', ''))[:50]
-                        })
-                except:
-                    pass
-    
-    # Track conflicts for warning display
-    conflicts = []
-    
-    if view_type == "Weekly Calendar":
-        # Create a technician x day matrix
-        unique_techs = techs_df['name'].tolist()
-        unique_techs.append("Unassigned")
-        
-        # Build the table
-        calendar_data = []
-        for tech in unique_techs:
-            row = {'Technician': tech}
-            for i, day_name in enumerate(week_day_names):
-                day_jobs = [j for j in week_jobs if j['technician'] == tech and j['weekday'] == i]
-                if day_jobs:
-                    job_text = "<br>".join([f"• #{j['id']} - {j['customer_name'][:15]} ({j['service_type'][:8]})" for j in day_jobs[:3]])
-                    if len(day_jobs) > 3:
-                        job_text += f"<br>• +{len(day_jobs)-3} more"
-                    row[day_name] = job_text
-                else:
-                    row[day_name] = "—"
-            calendar_data.append(row)
-        
-        calendar_df = pd.DataFrame(calendar_data)
-        st.dataframe(calendar_df, use_container_width=True, height=400)
-        
-        # Color-coded legend
-        st.markdown("""
-        <div style='margin-top:16px; padding:12px; background:#050508; border:1px solid #0f0f1a; border-radius:12px;'>
-            <div style='font-size:11px; font-weight:700; color:#475569; margin-bottom:8px;'>Service Type Colors:</div>
-            <div style='display:flex; gap:16px; flex-wrap:wrap;'>
-                <div><span style='display:inline-block; width:16px; height:16px; background:#6366f1; border-radius:4px;'></span> HVAC</div>
-                <div><span style='display:inline-block; width:16px; height:16px; background:#f59e0b; border-radius:4px;'></span> Plumbing</div>
-                <div><span style='display:inline-block; width:16px; height:16px; background:#10b981; border-radius:4px;'></span> Electrical</div>
-                <div><span style='display:inline-block; width:16px; height:16px; background:#ec4899; border-radius:4px;'></span> Appliance Repair</div>
-                <div><span style='display:inline-block; width:16px; height:16px; background:#ef4444; border-radius:4px;'></span> Emergency</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    elif view_type == "Gantt Chart":
-        st.info("Gantt Chart View - Shows job timeline by technician")
-        
-        # Prepare data for Gantt chart
-        gantt_data = []
-        for job in week_jobs:
-            if job['technician'] != 'Unassigned':
-                # Create a simple Gantt representation
-                job_start = datetime.combine(job['date'], datetime.min.time())
-                job_end = job_start + timedelta(hours=2)  # Assume 2 hour duration
-                gantt_data.append({
-                    'Task': f"#{job['id']} - {job['customer_name'][:20]}",
-                    'Start': job_start,
-                    'Finish': job_end,
-                    'Resource': job['technician'],
-                    'Service': job['service_type']
-                })
-        
-        if gantt_data:
-            gantt_df = pd.DataFrame(gantt_data)
-            
-            # Create Gantt chart using plotly
-            fig = px.timeline(gantt_df, x_start="Start", x_end="Finish", y="Resource", color="Service",
-                              color_discrete_map={
-                                  "HVAC": "#6366f1",
-                                  "Plumbing": "#f59e0b", 
-                                  "Electrical": "#10b981",
-                                  "Appliance Repair": "#ec4899",
-                                  "Emergency": "#ef4444",
-                                  "Unknown": "#64748b"
-                              },
-                              title="Weekly Job Schedule by Technician",
-                              labels={"Resource": "Technician", "Service": "Service Type"})
-            
-            fig.update_layout(
-                template='plotly_dark',
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                height=400,
-                xaxis_title="Time",
-                yaxis_title="Technician"
-            )
-            
-            # Add hover text with job details
-            fig.update_traces(textposition="inside", textfont=dict(color="white", size=10))
-            
-            st.plotly_chart(fig, use_container_width=True, config=CHART_CFG)
-        else:
-            st.info("No scheduled jobs for the selected week")
-    
-    else:  # Technician Schedule view
-        selected_tech = st.selectbox("Select Technician", techs_df['name'].tolist())
-        
-        tech_jobs = [j for j in week_jobs if j['technician'] == selected_tech]
-        
-        if tech_jobs:
-            st.markdown(f"### {selected_tech}'s Schedule")
-            
-            for day_idx, day_name in enumerate(week_day_names):
-                day_jobs = [j for j in tech_jobs if j['weekday'] == day_idx]
-                if day_jobs:
-                    st.markdown(f"**{day_name}** ({week_dates[day_idx]})")
-                    for job in day_jobs:
-                        color = get_service_type_color(job['service_type'])
-                        urgency_icon = "🚨 " if job['urgency'] == "Emergency" else ""
+                        # SHOW CODE ON SCREEN FIRST (always works)
                         st.markdown(f"""
-                        <div style='background:#050508; border-left:3px solid {color}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>
-                            <div style='display:flex; justify-content:space-between; align-items:center;'>
-                                <div>
-                                    <strong>#{job['id']}</strong> - {urgency_icon}{job['customer_name']}
-                                </div>
-                                <span style='font-size:10px; color:#475569;'>{job['status']}</span>
-                            </div>
-                            <div style='font-size:11px; color:#64748b; margin-top:4px;'>
-                                📍 {job['address']} | 🔧 {job['service_type']}
-                            </div>
+                        <div style='background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:12px;padding:16px;margin:12px 0;'>
+                            <div style='font-size:12px;color:#64748b;text-align:center;margin-bottom:8px;'>📧 Your verification code is:</div>
+                            <div class='code-display'>{verification_code}</div>
+                            <div style='font-size:11px;color:#334155;text-align:center;'>Code expires in 15 minutes</div>
                         </div>
                         """, unsafe_allow_html=True)
-                    st.markdown("<br>", unsafe_allow_html=True)
-        else:
-            st.info(f"No jobs scheduled for {selected_tech} this week")
+                        
+                        # Try to send email
+                        with st.spinner("Also sending verification code to your email..."):
+                            try:
+                                email_sent = send_verification_email(email, verification_code, company_name)
+                                if email_sent:
+                                    st.success("✅ Verification code also sent to your email!")
+                                else:
+                                    st.warning("⚠️ Could not send email. Please use the code shown above.")
+                            except Exception as e:
+                                st.warning(f"⚠️ Email error. Please use the code shown above.")
+                        
+                        # Proceed to step 2
+                        st.session_state.registration_step = 2
+                        st.rerun()
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("← Back to Login", use_container_width=True, key="back_login_btn"):
+                st.session_state.show_register = False
+                st.session_state.registration_step = 1
+                st.rerun()
     
-    # Drag-and-drop reassignment section (using select dropdowns for simplicity)
-    st.markdown("---")
-    st.markdown("<div class='section-header'>&#128259; Job Reassignment (Drag & Drop)</div>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        pending_assign_jobs = jobs_df[jobs_df['status'].isin(['Pending Assignment', 'Assigned'])] if not jobs_df.empty else pd.DataFrame()
-        if not pending_assign_jobs.empty:
-            job_options = {f"#{row['id']} - {row['customer_name']} (Current: {row.get('assigned_tech', 'None')})": row['id'] 
-                          for _, row in pending_assign_jobs.iterrows()}
-            selected_job_key = st.selectbox("Select Job to Reassign", list(job_options.keys()))
-            selected_job_id = job_options[selected_job_key]
-        else:
-            st.info("No pending jobs to reassign")
-            selected_job_id = None
-    
-    with col2:
-        tech_options = techs_df['name'].tolist() if not techs_df.empty else []
-        new_tech = st.selectbox("Assign to Technician", tech_options) if tech_options else st.selectbox("Assign to Technician", ["No technicians available"])
-    
-    with col3:
-        if st.button("🔄 Reassign Job", use_container_width=True) and selected_job_id and new_tech:
-            update_job_assignment(selected_job_id, new_tech)
-            st.success(f"Job #{selected_job_id} reassigned to {new_tech}!")
-            st.rerun()
-    
-    # Conflict detection display
-    if not jobs_df.empty and not techs_df.empty:
-        st.markdown("---")
-        st.markdown("<div class='section-header'>&#9888; Conflict Detection</div>", unsafe_allow_html=True)
+    # ===== STEP 2: VERIFY EMAIL =====
+    elif step == 2:
+        st.markdown("<div style='text-align:center;color:#64748b;font-size:13px;'>Step 2 of 3 - Verify Email</div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        # Check for double-booking conflicts
-        conflict_found = False
-        for tech in techs_df['name'].tolist():
-            tech_jobs = jobs_df[jobs_df['assigned_tech'] == tech]
-            if len(tech_jobs) > 1:
-                dates = []
-                for _, job in tech_jobs.iterrows():
-                    sched_date = job.get('scheduled_date')
-                    if sched_date:
-                        try:
-                            dates.append(pd.to_datetime(sched_date).date())
-                        except:
-                            pass
-                if len(dates) != len(set(dates)):
-                    conflict_found = True
-                    st.warning(f"⚠️ {tech} has multiple jobs scheduled on the same day!")
-        
-        if not conflict_found:
-            st.success("✅ No scheduling conflicts detected")
+        col1, col2, col3 = st.columns([1, 1.2, 1])
+        with col2:
+            # Show the code again for user reference
+            st.markdown(f"""
+            <div style='background:#03030a;border:1px solid #0f0f1a;border-radius:12px;padding:16px;text-align:center;margin-bottom:16px;'>
+                <div style='font-size:12px;color:#64748b;'>A verification code was sent to</div>
+                <div style='font-size:15px;font-weight:700;color:#f1f5f9;'>{st.session_state.reg_data['email']}</div>
+                <div style='font-size:11px;color:#6366f1;margin-top:6px;'>🔑 Code: {st.session_state.verification_code}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            entered_code = st.text_input("Enter Verification Code", placeholder="Enter 6-digit code", key="reg_code", type="password")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✓ Verify & Create Account", use_container_width=True, key="reg_verify"):
+                    if entered_code == st.session_state.verification_code:
+                        with st.spinner("Creating your account..."):
+                            user_id, signup_err = safe_sign_up(
+                                st.session_state.reg_data['email'],
+                                st.session_state.reg_data['password']
+                            )
 
-# --- 7. SHARED CSS (SAME AS BEFORE - KEPT INTACT) ---
+                            if signup_err:
+                                st.error(f"❌ {signup_err}")
+                            elif user_id:
+                                try:
+                                    # Insert user data
+                                    supabase.table("users").insert({
+                                        "id": user_id,
+                                        "email": st.session_state.reg_data['email'],
+                                        "company_name": st.session_state.reg_data['company_name'],
+                                        "owner_name": st.session_state.reg_data['owner_name'],
+                                        "phone": st.session_state.reg_data.get('phone', ''),
+                                        "is_verified": True,
+                                        "trial_start_date": datetime.now().isoformat(),
+                                        "trial_end_date": (datetime.now() + timedelta(days=7)).isoformat(),
+                                        "subscription_status": "trial"
+                                    }).execute()
+
+                                    # Save verification record
+                                    supabase.table("verification_codes").insert({
+                                        "email": st.session_state.reg_data['email'],
+                                        "code": st.session_state.verification_code,
+                                        "expires_at": (datetime.now() + timedelta(minutes=15)).isoformat(),
+                                        "is_used": True
+                                    }).execute()
+
+                                    st.session_state.registration_step = 3
+                                    st.success("✅ Account created successfully!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error saving profile: {str(e)}")
+                    else:
+                        st.error("❌ Invalid verification code. Please try again.")
+            
+            with c2:
+                if st.button("Resend Code", use_container_width=True, key="reg_resend"):
+                    new_code = generate_verification_code()
+                    st.session_state.verification_code = new_code
+                    
+                    # Show new code on screen
+                    st.markdown(f"""
+                    <div style='background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:12px;padding:12px;margin:12px 0;'>
+                        <div style='font-size:11px;color:#34d399;text-align:center;'>🔄 New code sent: <strong>{new_code}</strong></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Try to send email
+                    send_verification_email(
+                        st.session_state.reg_data['email'], 
+                        new_code, 
+                        st.session_state.reg_data['company_name']
+                    )
+                    st.success("✅ New code sent to your email!")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("← Back to Step 1", use_container_width=True, key="back_step1"):
+                st.session_state.registration_step = 1
+                st.rerun()
+    
+    # ===== STEP 3: SUCCESS =====
+    elif step == 3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 1.2, 1])
+        with col2:
+            st.markdown("""
+            <div style='text-align:center;padding:40px 20px;'>
+                <div style='font-size:48px;margin-bottom:20px;'>🎉</div>
+                <div style='font-size:24px;font-weight:700;color:#f8fafc;'>Account Created!</div>
+                <div style='font-size:13px;color:#475569;margin-top:10px;'>Your 7-day free trial has started.</div>
+                
+                <div style='background:#03030a;border:1px solid #0f0f1a;border-radius:12px;padding:16px;margin:20px 0;'>
+                    <div style='font-size:12px;color:#64748b;'>Trial ends on</div>
+                    <div style='font-size:18px;font-weight:700;color:#fbbf24;'>
+                        {(datetime.now() + timedelta(days=7)).strftime("%B %d, %Y")}
+                    </div>
+                    <div style='font-size:11px;color:#34d399;margin-top:4px;'>✅ 7 days remaining</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("Login Now →", use_container_width=True, key="reg_login"):
+                st.session_state.show_register = False
+                st.session_state.registration_step = 1
+                st.rerun()
+
+# =======================================================================
+# STATUS PILL HTML
+# =======================================================================
+def status_pill_html(status):
+    css_map = {
+        "Pending Assignment": "status-pending",
+        "Assigned": "status-assigned",
+        "En Route": "status-en-route",
+        "Arrived": "status-arrived",
+        "In Progress": "status-in-progress",
+        "Completed": "status-completed",
+        "Invoiced": "status-invoiced",
+        "Paid": "status-paid"
+    }
+    css = css_map.get(status, "status-pending")
+    dot_color = {"Pending Assignment":"#fbbf24","Assigned":"#818cf8","En Route":"#38bdf8",
+                 "Arrived":"#a78bfa","In Progress":"#f472b6","Completed":"#34d399",
+                 "Invoiced":"#fb7185","Paid":"#34d399"}.get(status, "#475569")
+    return f'<span class="status-pill {css}"><span class="metric-dot" style="background:{dot_color};"></span>{status}</span>'
+
+# --- PIPELINE STEPPER HTML ---
+def pipeline_html(current_status, timestamps=None):
+    timestamps = timestamps or {}
+    steps = [
+        ("Pending", "Pending Assignment", "time_pending_assignment"),
+        ("Assigned", "Assigned", "time_assigned"),
+        ("En Route", "En Route", "time_en_route"),
+        ("Arrived", "Arrived", "time_arrived"),
+        ("In Progress", "In Progress", "time_in_progress"),
+        ("Completed", "Completed", "time_completed"),
+        ("Invoiced", "Invoiced", "time_invoiced"),
+        ("Paid", "Paid", "time_paid")
+    ]
+    
+    current_index = -1
+    for i, (_, full_status, _) in enumerate(steps):
+        if full_status == current_status:
+            current_index = i
+            break
+    
+    html = '<div class="pipeline-wrap">'
+    for i, (label, full_status, ts_key) in enumerate(steps):
+        cls = ""
+        if full_status == current_status:
+            cls = "active current"
+        elif current_index != -1 and i < current_index:
+            cls = "done"
+        
+        ts_val = timestamps.get(ts_key, "")
+        ts_display = f'<div class="pipeline-time">{str(ts_val)[:16] if ts_val else "—"}</div>'
+        html += f'<div class="pipeline-step {cls}"><div class="pipeline-step-line"></div><div class="pipeline-dot">✓</div><div class="pipeline-label">{label}</div>{ts_display}</div>'
+    html += '</div>'
+    return html
+
+# --- SHARED CSS ---
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
@@ -1219,58 +1324,6 @@ def render_header(show_back=False, back_label="← Back to Dashboard", page_titl
         if st.button(back_label, key="back_btn"):
             st.session_state.page = "home"
             st.rerun()
-
-# --- STATUS PILL HTML ---
-def status_pill_html(status):
-    css_map = {
-        "Pending Assignment": "status-pending",
-        "Assigned": "status-assigned",
-        "En Route": "status-en-route",
-        "Arrived": "status-arrived",
-        "In Progress": "status-in-progress",
-        "Completed": "status-completed",
-        "Invoiced": "status-invoiced",
-        "Paid": "status-paid"
-    }
-    css = css_map.get(status, "status-pending")
-    dot_color = {"Pending Assignment":"#fbbf24","Assigned":"#818cf8","En Route":"#38bdf8",
-                 "Arrived":"#a78bfa","In Progress":"#f472b6","Completed":"#34d399",
-                 "Invoiced":"#fb7185","Paid":"#34d399"}.get(status, "#475569")
-    return f'<span class="status-pill {css}"><span class="metric-dot" style="background:{dot_color};"></span>{status}</span>'
-
-# --- PIPELINE STEPPER HTML ---
-def pipeline_html(current_status, timestamps=None):
-    timestamps = timestamps or {}
-    steps = [
-        ("Pending", "Pending Assignment", "time_pending_assignment"),
-        ("Assigned", "Assigned", "time_assigned"),
-        ("En Route", "En Route", "time_en_route"),
-        ("Arrived", "Arrived", "time_arrived"),
-        ("In Progress", "In Progress", "time_in_progress"),
-        ("Completed", "Completed", "time_completed"),
-        ("Invoiced", "Invoiced", "time_invoiced"),
-        ("Paid", "Paid", "time_paid")
-    ]
-    
-    current_index = -1
-    for i, (_, full_status, _) in enumerate(steps):
-        if full_status == current_status:
-            current_index = i
-            break
-    
-    html = '<div class="pipeline-wrap">'
-    for i, (label, full_status, ts_key) in enumerate(steps):
-        cls = ""
-        if full_status == current_status:
-            cls = "active current"
-        elif current_index != -1 and i < current_index:
-            cls = "done"
-        
-        ts_val = timestamps.get(ts_key, "")
-        ts_display = f'<div class="pipeline-time">{str(ts_val)[:16] if ts_val else "—"}</div>'
-        html += f'<div class="pipeline-step {cls}"><div class="pipeline-step-line"></div><div class="pipeline-dot">✓</div><div class="pipeline-label">{label}</div>{ts_display}</div>'
-    html += '</div>'
-    return html
 
 # =======================================================================
 # ANALYTICS PAGES (KEPT INTACT - Same as before)
@@ -1549,6 +1602,192 @@ def page_revenue():
         show_df = tr_df[["name", "jobs", "avg_ticket_fmt", "conversion_fmt", "revenue_fmt"]].rename(columns={"name": "Technician", "jobs": "Dispatched Jobs", "avg_ticket_fmt": "Avg Ticket", "conversion_fmt": "Conversion", "revenue_fmt": "Est. Revenue"})
         st.dataframe(show_df, use_container_width=True, hide_index=True)
     else: st.info("Add technicians with avg ticket & conversion rates to see revenue data.")
+
+# =======================================================================
+# CALENDAR/GANTT SCHEDULE VIEW
+# =======================================================================
+def get_service_type_color(service_type):
+    colors = {
+        "HVAC": "#6366f1",
+        "Plumbing": "#f59e0b",
+        "Electrical": "#10b981",
+        "Appliance Repair": "#ec4899",
+        "General Home Service": "#8b5cf6",
+        "Emergency": "#ef4444",
+        "Unknown": "#64748b"
+    }
+    return colors.get(service_type, "#6366f1")
+
+def render_calendar_view():
+    st.markdown("<div class='section-header'>&#128197; Weekly Schedule Calendar</div>", unsafe_allow_html=True)
+    jobs_df = get_jobs()
+    techs_df = get_technicians()
+    
+    if techs_df.empty:
+        st.info("No technicians found. Please add technicians in the ROSTER tab first.")
+        return
+    
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        week_offset = st.number_input("Week Offset", min_value=-4, max_value=4, value=0)
+    with col2:
+        view_type = st.selectbox("View Type", ["Weekly Calendar", "Gantt Chart", "Technician Schedule"])
+    with col3:
+        st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 Refresh Schedule", use_container_width=True):
+            st.rerun()
+    
+    today = datetime.now().date()
+    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+    week_dates = [start_of_week + timedelta(days=i) for i in range(7)]
+    week_day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    week_jobs = []
+    if not jobs_df.empty:
+        for _, job in jobs_df.iterrows():
+            scheduled_date = job.get('scheduled_date')
+            if scheduled_date:
+                try:
+                    job_date = pd.to_datetime(scheduled_date).date()
+                    if start_of_week <= job_date <= start_of_week + timedelta(days=6):
+                        summary = parse_summary(job.get('ai_summary', None))
+                        service_type = summary.get('service_type', 'Unknown') if summary else 'Unknown'
+                        urgency = summary.get('urgency', 'Normal') if summary else 'Normal'
+                        week_jobs.append({
+                            'id': job['id'],
+                            'customer_name': job['customer_name'],
+                            'phone': job['phone'],
+                            'technician': job.get('assigned_tech', 'Unassigned'),
+                            'date': job_date,
+                            'weekday': job_date.weekday(),
+                            'service_type': service_type,
+                            'urgency': urgency,
+                            'status': job.get('status', 'Pending'),
+                            'address': str(job.get('keywords', ''))[:50]
+                        })
+                except:
+                    pass
+    
+    if view_type == "Weekly Calendar":
+        unique_techs = techs_df['name'].tolist()
+        unique_techs.append("Unassigned")
+        calendar_data = []
+        for tech in unique_techs:
+            row = {'Technician': tech}
+            for i, day_name in enumerate(week_day_names):
+                day_jobs = [j for j in week_jobs if j['technician'] == tech and j['weekday'] == i]
+                if day_jobs:
+                    job_text = "<br>".join([f"• #{j['id']} - {j['customer_name'][:15]} ({j['service_type'][:8]})" for j in day_jobs[:3]])
+                    if len(day_jobs) > 3:
+                        job_text += f"<br>• +{len(day_jobs)-3} more"
+                    row[day_name] = job_text
+                else:
+                    row[day_name] = "—"
+            calendar_data.append(row)
+        calendar_df = pd.DataFrame(calendar_data)
+        st.dataframe(calendar_df, use_container_width=True, height=400)
+    
+    elif view_type == "Gantt Chart":
+        st.info("Gantt Chart View - Shows job timeline by technician")
+        gantt_data = []
+        for job in week_jobs:
+            if job['technician'] != 'Unassigned':
+                job_start = datetime.combine(job['date'], datetime.min.time())
+                job_end = job_start + timedelta(hours=2)
+                gantt_data.append({
+                    'Task': f"#{job['id']} - {job['customer_name'][:20]}",
+                    'Start': job_start,
+                    'Finish': job_end,
+                    'Resource': job['technician'],
+                    'Service': job['service_type']
+                })
+        if gantt_data:
+            gantt_df = pd.DataFrame(gantt_data)
+            fig = px.timeline(gantt_df, x_start="Start", x_end="Finish", y="Resource", color="Service",
+                              color_discrete_map={
+                                  "HVAC": "#6366f1", "Plumbing": "#f59e0b", "Electrical": "#10b981",
+                                  "Appliance Repair": "#ec4899", "Emergency": "#ef4444", "Unknown": "#64748b"
+                              },
+                              title="Weekly Job Schedule by Technician",
+                              labels={"Resource": "Technician", "Service": "Service Type"})
+            fig.update_layout(template='plotly_dark', paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)", height=400,
+                            xaxis_title="Time", yaxis_title="Technician")
+            fig.update_traces(textposition="inside", textfont=dict(color="white", size=10))
+            st.plotly_chart(fig, use_container_width=True, config=CHART_CFG)
+        else:
+            st.info("No scheduled jobs for the selected week")
+    
+    else:
+        selected_tech = st.selectbox("Select Technician", techs_df['name'].tolist())
+        tech_jobs = [j for j in week_jobs if j['technician'] == selected_tech]
+        if tech_jobs:
+            st.markdown(f"### {selected_tech}'s Schedule")
+            for day_idx, day_name in enumerate(week_day_names):
+                day_jobs = [j for j in tech_jobs if j['weekday'] == day_idx]
+                if day_jobs:
+                    st.markdown(f"**{day_name}** ({week_dates[day_idx]})")
+                    for job in day_jobs:
+                        color = get_service_type_color(job['service_type'])
+                        urgency_icon = "🚨 " if job['urgency'] == "Emergency" else ""
+                        st.markdown(f"""
+                        <div style='background:#050508; border-left:3px solid {color}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>
+                            <div style='display:flex; justify-content:space-between; align-items:center;'>
+                                <div><strong>#{job['id']}</strong> - {urgency_icon}{job['customer_name']}</div>
+                                <span style='font-size:10px; color:#475569;'>{job['status']}</span>
+                            </div>
+                            <div style='font-size:11px; color:#64748b; margin-top:4px;'>📍 {job['address']} | 🔧 {job['service_type']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
+        else:
+            st.info(f"No jobs scheduled for {selected_tech} this week")
+    
+    st.markdown("---")
+    st.markdown("<div class='section-header'>&#128259; Job Reassignment (Drag & Drop)</div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        pending_assign_jobs = jobs_df[jobs_df['status'].isin(['Pending Assignment', 'Assigned'])] if not jobs_df.empty else pd.DataFrame()
+        if not pending_assign_jobs.empty:
+            job_options = {f"#{row['id']} - {row['customer_name']} (Current: {row.get('assigned_tech', 'None')})": row['id'] 
+                          for _, row in pending_assign_jobs.iterrows()}
+            selected_job_key = st.selectbox("Select Job to Reassign", list(job_options.keys()))
+            selected_job_id = job_options[selected_job_key]
+        else:
+            st.info("No pending jobs to reassign")
+            selected_job_id = None
+    
+    with col2:
+        tech_options = techs_df['name'].tolist() if not techs_df.empty else []
+        new_tech = st.selectbox("Assign to Technician", tech_options) if tech_options else st.selectbox("Assign to Technician", ["No technicians available"])
+    
+    with col3:
+        if st.button("🔄 Reassign Job", use_container_width=True) and selected_job_id and new_tech:
+            update_job_assignment(selected_job_id, new_tech)
+            st.success(f"Job #{selected_job_id} reassigned to {new_tech}!")
+            st.rerun()
+    
+    if not jobs_df.empty and not techs_df.empty:
+        st.markdown("---")
+        st.markdown("<div class='section-header'>&#9888; Conflict Detection</div>", unsafe_allow_html=True)
+        conflict_found = False
+        for tech in techs_df['name'].tolist():
+            tech_jobs = jobs_df[jobs_df['assigned_tech'] == tech]
+            if len(tech_jobs) > 1:
+                dates = []
+                for _, job in tech_jobs.iterrows():
+                    sched_date = job.get('scheduled_date')
+                    if sched_date:
+                        try:
+                            dates.append(pd.to_datetime(sched_date).date())
+                        except:
+                            pass
+                if len(dates) != len(set(dates)):
+                    conflict_found = True
+                    st.warning(f"⚠️ {tech} has multiple jobs scheduled on the same day!")
+        if not conflict_found:
+            st.success("✅ No scheduling conflicts detected")
 
 # =======================================================================
 # HOME PAGE (MAIN DISPATCH INTERFACE)
@@ -2002,7 +2241,7 @@ def page_home():
             rows_html = ""
             for it in preview_items:
                 rows_html += f"<tr><td style='padding:10px 12px;font-size:12px;color:#cbd5e1;border-bottom:1px solid #0f0f1a;'>{it['desc']}</td><td style='padding:10px 12px;font-size:12px;color:#94a3b8;text-align:center;border-bottom:1px solid #0f0f1a;'>{it['qty']}</td><td style='padding:10px 12px;font-size:12px;color:#94a3b8;text-align:right;border-bottom:1px solid #0f0f1a;'>${it['rate']:,.2f}</td><td style='padding:10px 12px;font-size:12px;color:#e2e8f0;text-align:right;font-weight:600;border-bottom:1px solid #0f0f1a;'>${it['amt']:,.2f}</td></tr>"
-            if not rows_html: rows_html = "<tr><td colspan='4' style='padding:20px;text-align:center;color:#334155;font-size:12px;'>No line items yet. Add services on the left.<tr></tr>"
+            if not rows_html: rows_html = "<tr><td colspan='4' style='padding:20px;text-align:center;color:#334155;font-size:12px;'>No line items yet. Add services on the left.</td></tr>"
             preview_html = f"""<div style='background:#050508;border:1px solid #0f0f1a;border-radius:20px;padding:28px 32px;max-width:540px;margin:0 auto;box-shadow:0 20px 60px rgba(0,0,0,0.4);'><div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;'><div><div style='font-family:Space Grotesk,sans-serif;font-size:22px;font-weight:700;color:#f8fafc;letter-spacing:-0.5px;'>TELERON</div><div style='font-size:10px;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:2px;'>Central Dispatch · HVAC & Home Services</div></div><div style='text-align:right;'><div style='font-size:11px;font-weight:700;color:#f43f5e;text-transform:uppercase;letter-spacing:1px;'>INVOICE</div><div style='font-size:16px;font-weight:700;color:#f1f5f9;margin-top:4px;'>{p_num}</div></div></div><div style='display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #0f0f1a;'><div><div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;'>Bill To</div><div style='font-size:13px;font-weight:700;color:#f1f5f9;'>{sel_job_name}</div><div style='font-size:11px;color:#475569;margin-top:3px;'>&#128241; {sel_job_phone}</div><div style='font-size:11px;color:#475569;margin-top:2px;max-width:180px;line-height:1.5;'>&#128205; {sel_job_addr[:80]}</div></div><div style='text-align:right;'><div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;'>Invoice Details</div><div style='font-size:11px;color:#94a3b8;margin-bottom:4px;'>Date: <span style='color:#cbd5e1;'>{p_date}</span></div><div style='font-size:11px;color:#94a3b8;'>Due: <span style='color:#cbd5e1;'>{p_due}</span></div></div></div><table style='width:100%;border-collapse:collapse;margin-bottom:16px;'><thead><tr style='background:#03030a;'><th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:left;border-bottom:1px solid #1a1a2e;'>Description</th><th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:center;border-bottom:1px solid #1a1a2e;'>Qty</th><th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:right;border-bottom:1px solid #1a1a2e;'>Rate</th><th style='padding:10px 12px;font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;text-align:right;border-bottom:1px solid #1a1a2e;'>Amount</th></tr></thead><tbody>{rows_html}</tbody></table><div style='display:flex;justify-content:flex-end;margin-bottom:20px;'><div style='width:220px;'><div style='display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:6px;'><span>Subtotal</span><span style='color:#94a3b8;font-weight:600;'>${p_sub:,.2f}</span></div><div style='display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:10px;'><span>Tax ({p_tax}%)</span><span style='color:#94a3b8;font-weight:600;'>${p_tax_amt:,.2f}</span></div><div style='border-top:1px solid #1a1a2e;padding-top:10px;display:flex;justify-content:space-between;font-size:16px;font-weight:700;color:#f43f5e;'><span>TOTAL</span><span>${p_total:,.2f}</span></div></div></div><div style='background:#03030a;border:1px solid #0f0f1a;border-radius:10px;padding:12px 14px;margin-bottom:16px;'><div style='font-size:9px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;'>Notes & Payment Terms</div><div style='font-size:11px;color:#475569;line-height:1.6;'>{p_notes}</div></div><div style='text-align:center;font-size:10px;color:#1e293b;padding-top:8px;border-top:1px solid #0f0f1a;'>Thank you for choosing Teleron Central Dispatch · support@teleron.com · (555) 019-2834</div></div>"""
             st.markdown(preview_html, unsafe_allow_html=True)
             st.markdown("<div class='section-header' style='margin-top:28px;'>Invoice History</div>", unsafe_allow_html=True)
@@ -2110,7 +2349,7 @@ def page_home():
         else:
             st.markdown("<div style='text-align:center;padding:60px 20px;'><div style='font-size:42px;margin-bottom:16px;'>&#128100;</div><div style='font-size:14px;font-weight:600;color:#334155;margin-bottom:8px;'>Customer CRM</div><div style='font-size:12px;color:#475569;max-width:360px;margin:0 auto;line-height:1.7;'>Search by customer name or phone number to view their complete profile, service history, equipment on file, outstanding invoices, and AI-analyzed call summaries.</div></div>", unsafe_allow_html=True)
 
-    # ===== TAB 9: CALENDAR/SCHEDULE VIEW (NEW FEATURE) =====
+    # ===== TAB 9: CALENDAR/SCHEDULE VIEW =====
     with tab9:
         render_calendar_view()
 
@@ -2328,13 +2567,24 @@ def page_customer_crm():
 # =======================================================================
 # ROUTER
 # =======================================================================
+
 # Check login status first
-if not st.session_state.logged_in:
-    if st.session_state.show_register:
+if not st.session_state.get("logged_in", False):
+    if st.session_state.get("show_register", False):
         register_page()
     else:
         login_page()
 else:
+    # Check trial status for company users
+    if not st.session_state.get("is_admin", False):
+        trial_check = check_trial_status(st.session_state.get("user_email", ""))
+        if trial_check['status'] == 'expired':
+            st.error("❌ Your free trial has expired. Please contact support@teleron.net to upgrade.")
+            if st.button("Logout"):
+                st.session_state.clear()
+                st.rerun()
+            st.stop()
+    
     page = st.session_state.get("page", "home")
 
     if page == "total_calls":
