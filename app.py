@@ -150,8 +150,16 @@ def get_prev_status(current_status):
 
 def get_jobs(status_filter=None):
     try:
+        company_id, is_admin, is_customer, customer_id = current_scope()
         query = supabase.table("jobs").select("*").order("id", desc=True)
-        if status_filter: query = query.eq("status", status_filter)
+        if status_filter:
+            query = query.eq("status", status_filter)
+        if is_admin:
+            pass
+        elif is_customer:
+            query = query.eq("posted_by_customer_id", customer_id)
+        else:
+            query = query.eq("company_id", company_id)
         result = query.execute()
         return pd.DataFrame(result.data) if result.data else pd.DataFrame()
     except Exception as e:
@@ -166,8 +174,12 @@ def get_job_by_id(job_id):
 
 def get_technicians(status_filter=None):
     try:
+        company_id, is_admin, is_customer, customer_id = current_scope()
         query = supabase.table("technicians").select("*").order("name")
-        if status_filter: query = query.eq("status", status_filter)
+        if status_filter:
+            query = query.eq("status", status_filter)
+        if not is_admin:
+            query = query.eq("company_id", company_id)
         result = query.execute()
         return pd.DataFrame(result.data) if result.data else pd.DataFrame()
     except Exception as e:
@@ -175,6 +187,12 @@ def get_technicians(status_filter=None):
         return pd.DataFrame()
 
 def insert_job(data):
+    company_id, is_admin, is_customer, customer_id = current_scope()
+    if is_customer:
+        data["posted_by_customer_id"] = customer_id
+        data["is_marketplace_job"] = True
+    elif not is_admin:
+        data["company_id"] = company_id
     return supabase.table("jobs").insert(data).execute()
 
 def update_job_status(job_id, status):
@@ -190,6 +208,9 @@ def delete_job(job_id):
     return supabase.table("jobs").delete().eq("id", job_id).execute()
 
 def insert_technician(data):
+    company_id, is_admin, _, _ = current_scope()
+    if not is_admin:
+        data["company_id"] = company_id
     return supabase.table("technicians").insert(data).execute()
 
 def update_tech_status(tech_id, status):
@@ -201,7 +222,11 @@ def delete_technician(tech_id):
 # --- INVOICE HELPERS ---
 def get_invoices():
     try:
-        result = supabase.table("invoices").select("*").order("id", desc=True).execute()
+        company_id, is_admin, _, _ = current_scope()
+        query = supabase.table("invoices").select("*").order("id", desc=True)
+        if not is_admin:
+            query = query.eq("company_id", company_id)
+        result = query.execute()
         return pd.DataFrame(result.data) if result.data else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
@@ -213,8 +238,13 @@ def get_invoice_by_job(job_id):
     except: return None
 
 def insert_invoice(data):
-    try: return supabase.table("invoices").insert(data).execute()
-    except Exception as e: return {"error": str(e)}
+    try:
+        company_id, is_admin, _, _ = current_scope()
+        if not is_admin:
+            data["company_id"] = company_id
+        return supabase.table("invoices").insert(data).execute()
+    except Exception as e:
+        return {"error": str(e)}
 
 def update_invoice_status(inv_id, status):
     try: return supabase.table("invoices").update({"status": status}).eq("id", inv_id).execute()
@@ -227,7 +257,11 @@ def delete_invoice(inv_id):
 # --- CUSTOMER CRM HELPERS ---
 def get_customers():
     try:
-        result = supabase.table("customers").select("*").order("name").execute()
+        company_id, is_admin, _, _ = current_scope()
+        query = supabase.table("customers").select("*").order("name")
+        if not is_admin:
+            query = query.eq("company_id", company_id)
+        result = query.execute()
         return pd.DataFrame(result.data) if result.data else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
@@ -240,6 +274,9 @@ def get_customer_by_phone(phone):
 
 def upsert_customer(data):
     try:
+        company_id, is_admin, _, _ = current_scope()
+        if not is_admin:
+            data["company_id"] = company_id
         existing = get_customer_by_phone(data.get("phone"))
         if existing:
             return supabase.table("customers").update(data).eq("phone", data["phone"]).execute()
@@ -262,15 +299,25 @@ def get_customer_invoices(phone):
 # --- EQUIPMENT HELPERS ---
 def get_equipment(customer_phone=None):
     try:
+        company_id, is_admin, _, _ = current_scope()
         query = supabase.table("equipment").select("*")
-        if customer_phone: query = query.eq("customer_phone", customer_phone)
+        if customer_phone:
+            query = query.eq("customer_phone", customer_phone)
+        if not is_admin:
+            query = query.eq("company_id", company_id)
         result = query.execute()
         return pd.DataFrame(result.data) if result.data else pd.DataFrame()
-    except: return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
 
 def insert_equipment(data):
-    try: return supabase.table("equipment").insert(data).execute()
-    except Exception as e: return {"error": str(e)}
+    try:
+        company_id, is_admin, _, _ = current_scope()
+        if not is_admin:
+            data["company_id"] = company_id
+        return supabase.table("equipment").insert(data).execute()
+    except Exception as e:
+        return {"error": str(e)}
 
 def delete_equipment(eq_id):
     try: return supabase.table("equipment").delete().eq("id", eq_id).execute()
@@ -530,6 +577,21 @@ if "customer_phone" not in st.session_state:
     st.session_state.customer_phone = None
 if "show_customer_register" not in st.session_state:
     st.session_state.show_customer_register = False
+
+if "admin_selected_company" not in st.session_state:
+    st.session_state.admin_selected_company = None
+if "admin_selected_company_name" not in st.session_state:
+    st.session_state.admin_selected_company_name = None
+
+def current_scope():
+    """Returns (company_id, is_admin, is_customer, customer_id) for the logged-in session."""
+    return (
+        st.session_state.get("user_id"),
+        st.session_state.get("is_admin", False),
+        st.session_state.get("is_customer", False),
+        st.session_state.get("customer_id"),
+    )
+
 
 def safe_sign_up(email, password):
     """Returns (user_id, error_message). Handles orphaned/duplicate auth records."""
@@ -1836,7 +1898,11 @@ def page_home():
         if n<=3: return "Low"
         if n<=8: return "Medium"
         return "High"
-
+    if st.session_state.get("is_admin"):
+        if st.button("🔐 Open Admin — View All Companies", key="btn_admin_overview", use_container_width=True):
+            st.session_state.page = "admin_overview"
+            st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("<div style='font-size:10px;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;'>&#128202; Live Dashboard — click any card to open full analytics</div>", unsafe_allow_html=True)
     mc1, mc2, mc3, mc4, mc5 = st.columns(5)
     with mc1:
@@ -2496,6 +2562,109 @@ def page_tech_portal():
             st.markdown(f'<div class="portal-job-card" style="opacity:0.7;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div style="font-size:13px;font-weight:700;color:#f1f5f9;">JOB #{job["id"]}</div>{status_pill_html(job.get("status","Completed"))}</div><div style="font-size:14px;font-weight:600;color:#f8fafc;">{job["customer_name"]}</div><div style="font-size:11px;color:#475569;">{str(job.get("keywords",""))[:50]}</div></div>', unsafe_allow_html=True)
     else:
         st.markdown("<div style='text-align:center;padding:20px;color:#1e293b;font-size:12px;'>No completed jobs yet</div>", unsafe_allow_html=True)
+# =======================================================================
+# ADMIN OVERVIEW — Company List
+# =======================================================================
+def page_admin_overview():
+    render_header(show_back=True, page_title="Admin — All Companies")
+
+    if st.session_state.get("admin_selected_company"):
+        page_admin_company_detail()
+        return
+
+    st.markdown("<div class='section-header'>All Registered Companies</div>", unsafe_allow_html=True)
+
+    try:
+        companies = supabase.table("users").select("*").order("company_name").execute().data or []
+    except Exception as e:
+        st.error(f"Error loading companies: {e}")
+        companies = []
+
+    if not companies:
+        st.info("No companies registered yet.")
+        return
+
+    all_jobs = supabase.table("jobs").select("id, company_id, status").execute().data or []
+    all_techs = supabase.table("technicians").select("id, company_id").execute().data or []
+    all_jobs_df = pd.DataFrame(all_jobs) if all_jobs else pd.DataFrame()
+    all_techs_df = pd.DataFrame(all_techs) if all_techs else pd.DataFrame()
+
+    for c in companies:
+        cid = c.get("id")
+        job_count = len(all_jobs_df[all_jobs_df["company_id"] == cid]) if not all_jobs_df.empty else 0
+        tech_count = len(all_techs_df[all_techs_df["company_id"] == cid]) if not all_techs_df.empty else 0
+        trial_check = check_trial_status(c.get("email", ""))
+
+        st.markdown(f"""
+        <div class="job-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <div class="job-card-name">{c.get('company_name','—')}</div>
+                    <div class="job-card-meta">
+                        <span>📧 {c.get('email','—')}</span>
+                        <span>📋 {job_count} jobs</span>
+                        <span>🔧 {tech_count} technicians</span>
+                        <span>Status: {trial_check.get('status','—')}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button(f"View {c.get('company_name','—')} →", key=f"admin_view_{cid}", use_container_width=True):
+            st.session_state.admin_selected_company = cid
+            st.session_state.admin_selected_company_name = c.get("company_name", "—")
+            st.rerun()
+
+        def page_admin_company_detail():
+            company_id = st.session_state.get("admin_selected_company")
+            company_name = st.session_state.get("admin_selected_company_name", "—")
+
+            render_header(show_back=False, page_title=f"Admin — {company_name}")
+
+            if st.button("← Back to All Companies", key="admin_back_to_list"):
+                st.session_state.admin_selected_company = None
+                st.session_state.admin_selected_company_name = None
+                st.rerun()
+
+            st.markdown(f"<div class='section-header'>{company_name} — Overview</div>", unsafe_allow_html=True)
+
+            jobs = supabase.table("jobs").select("*").eq("company_id", company_id).order("id", desc=True).execute().data or []
+            techs = supabase.table("technicians").select("*").eq("company_id", company_id).execute().data or []
+            invoices = supabase.table("invoices").select("*").eq("company_id", company_id).order("id", desc=True).execute().data or []
+
+            jobs_df = pd.DataFrame(jobs) if jobs else pd.DataFrame()
+            techs_df = pd.DataFrame(techs) if techs else pd.DataFrame()
+            inv_df = pd.DataFrame(invoices) if invoices else pd.DataFrame()
+
+            k1, k2, k3 = st.columns(3)
+            with k1:
+                st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:#818cf8;'>{len(jobs_df)}</div><div class='analytics-kpi-label'>Total Jobs</div></div>", unsafe_allow_html=True)
+            with k2:
+                st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:#34d399;'>{len(techs_df)}</div><div class='analytics-kpi-label'>Technicians</div></div>", unsafe_allow_html=True)
+            with k3:
+                st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:#fbbf24;'>{len(inv_df)}</div><div class='analytics-kpi-label'>Invoices</div></div>", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<div class='section-header'>Jobs</div>", unsafe_allow_html=True)
+            if not jobs_df.empty:
+                show_cols = [c for c in ['id','customer_name','phone','status','assigned_tech','scheduled_date'] if c in jobs_df.columns]
+                st.dataframe(jobs_df[show_cols], use_container_width=True, hide_index=True)
+            else:
+                st.info("No jobs for this company yet.")
+
+            st.markdown("<div class='section-header'>Technicians</div>", unsafe_allow_html=True)
+            if not techs_df.empty:
+                st.dataframe(techs_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No technicians for this company yet.")
+
+            st.markdown("<div class='section-header'>Invoices</div>", unsafe_allow_html=True)
+            if not inv_df.empty:
+                show_cols = [c for c in ['id','invoice_number','customer_name','total','status','invoice_date'] if c in inv_df.columns]
+                st.dataframe(inv_df[show_cols], use_container_width=True, hide_index=True)
+            else:
+                st.info("No invoices for this company yet.")
 
 # =======================================================================
 # CUSTOMER CRM FULL PAGE
@@ -2601,6 +2770,8 @@ else:
         page_tech_portal_admin()
     elif page == "tech_portal":
         page_tech_portal()
+    elif page == "admin_overview":
+        page_admin_overview()
     elif page == "customer_crm":
         page_customer_crm()
     else:
