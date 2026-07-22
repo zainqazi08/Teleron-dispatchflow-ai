@@ -24,10 +24,12 @@ st.set_page_config(page_title="Teleron Central Dispatch", page_icon="logo.png", 
 SUPABASE_URL = "https://fjtngjxvarpboretvrzl.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqdG5nanh2YXJwYm9yZXR2cnpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMTExOTIsImV4cCI6MjA5NDg4NzE5Mn0.UuWxjqPX1YRmhPS6qzSUpX9iaJ0_URC8nk8Yvbps374"
 
-@st.cache_resource
 def get_supabase() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    if "supabase_client" not in st.session_state:
+        st.session_state.supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return st.session_state.supabase_client
 supabase = get_supabase()
+ADMIN_EMAIL_CONST = "admin@teleron.net"
 
 # --- 3. GROQ ---
 try:
@@ -583,6 +585,67 @@ if "admin_selected_company" not in st.session_state:
 if "admin_selected_company_name" not in st.session_state:
     st.session_state.admin_selected_company_name = None
 
+def do_logout():
+    for key in ["logged_in", "is_admin", "is_customer", "user_id", "user_email",
+                "company_name", "customer_id", "customer_name", "customer_phone",
+                "page", "admin_selected_company", "admin_selected_company_name"]:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.query_params.clear()
+    st.rerun()
+
+def restore_session_from_url():
+    if st.session_state.get("logged_in"):
+        return
+    qp_role = st.query_params.get("role")
+    qp_email = st.query_params.get("email")
+    if not qp_role or not qp_email:
+        return
+    try:
+        if qp_role == "admin" and qp_email == ADMIN_EMAIL_CONST:
+            st.session_state.logged_in = True
+            st.session_state.is_admin = True
+            st.session_state.is_customer = False
+            st.session_state.user_email = qp_email
+            st.session_state.company_name = "Teleron Admin"
+        elif qp_role == "company":
+            result = supabase.table("users").select("*").eq("email", qp_email).execute()
+            if result.data:
+                user = result.data[0]
+                st.session_state.logged_in = True
+                st.session_state.is_admin = False
+                st.session_state.is_customer = False
+                st.session_state.user_email = qp_email
+                st.session_state.user_id = user["id"]
+                st.session_state.company_name = user["company_name"]
+        elif qp_role == "customer":
+            cust = get_customer_by_email(qp_email)
+            if cust:
+                st.session_state.logged_in = True
+                st.session_state.is_customer = True
+                st.session_state.is_admin = False
+                st.session_state.customer_id = cust["id"]
+                st.session_state.customer_name = cust["name"]
+                st.session_state.customer_phone = cust.get("phone", "")
+                st.session_state.user_email = qp_email
+    except Exception:
+        pass
+def get_new_marketplace_job_count():
+    try:
+        jobs = get_marketplace_jobs(status_filter="open")
+        if jobs.empty or "timestamp" not in jobs.columns:
+            return 0
+        last_viewed = st.session_state.get("last_viewed_marketplace")
+        if not last_viewed:
+            return len(jobs)
+        count = 0
+        for _, j in jobs.iterrows():
+            ts = j.get("timestamp")
+            if ts and str(ts) > str(last_viewed):
+                count += 1
+        return count
+    except Exception:
+        return 0
 def current_scope():
     """Returns (company_id, is_admin, is_customer, customer_id) for the logged-in session."""
     return (
@@ -778,9 +841,31 @@ def login_page():
                         st.session_state.is_admin = True
                         st.session_state.user_email = email
                         st.session_state.company_name = "Teleron Admin"
+                        st.query_params["role"] = "admin"
+                        st.query_params["email"] = email
                         st.rerun()
                     else:
                         st.error("❌ Invalid admin credentials.")
+                elif is_customer_login:
+                    try:
+                        supabase.auth.sign_in_with_password({"email": email, "password": password})
+                        cust = get_customer_by_email(email)
+                        if cust:
+                            st.session_state.logged_in = True
+                            st.session_state.is_customer = True
+                            st.session_state.is_admin = False
+                            st.session_state.customer_id = cust["id"]
+                            st.session_state.customer_name = cust["name"]
+                            st.session_state.customer_phone = cust.get("phone", "")
+                            st.session_state.user_email = email
+                            st.session_state.page = "customer_dashboard"
+                            st.query_params["role"] = "customer"
+                            st.query_params["email"] = email
+                            st.rerun()
+                        else:
+                            st.error("⚠️ Homeowner profile not found. Please register first.")
+                    except Exception:
+                        st.error("❌ Invalid email or password.")
                 else:
                     try:
                         supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -796,6 +881,7 @@ def login_page():
                                 else:
                                     st.session_state.logged_in = True
                                     st.session_state.is_admin = False
+                                    st.session_state.is_customer = False
                                     st.session_state.user_email = email
                                     st.session_state.user_id = user['id']
                                     st.session_state.company_name = user['company_name']
@@ -809,7 +895,19 @@ def login_page():
             else:
                 st.error("⚠️ Please enter your email and password.")
         
-        if not is_admin:
+        if is_customer_login:
+            st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+            st.markdown("""
+            <div style="text-align:center;font-size:13px;color:#334155;font-weight:600;">
+                New homeowner? <span style="color:#6366f1;">Post your first job free</span>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
+            if st.button("Create Homeowner Account →", use_container_width=True, key="customer_register_btn"):
+                st.session_state.show_customer_register = True
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        elif not is_admin:
             st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
             st.markdown("""
             <div style="text-align:center;font-size:13px;color:#334155;font-weight:600;">
@@ -1079,6 +1177,63 @@ def register_page():
             if st.button("Login Now →", use_container_width=True, key="reg_login"):
                 st.session_state.show_register = False
                 st.session_state.registration_step = 1
+                st.rerun()
+
+def customer_register_page():
+    st.markdown("""
+    <div style='text-align:center;margin-top:60px;'>
+        <div style='font-family:Space Grotesk,sans-serif;font-size:32px;font-weight:700;color:#f8fafc;'>🏠 Create Homeowner Account</div>
+        <div style='font-size:12px;color:#475569;margin-top:6px;'>Post jobs and get competitive bids from verified HVAC companies</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+ 
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
+        full_name = st.text_input("Full Name", placeholder="Jane Doe", key="creg_name")
+        email = st.text_input("Email", placeholder="jane@email.com", key="creg_email")
+        phone = st.text_input("Phone Number", placeholder="+1 (555) 000-0000", key="creg_phone")
+        address = st.text_input("Home Address", placeholder="123 Main St, Houston, TX", key="creg_address")
+        password = st.text_input("Password", type="password", placeholder="Min 8 characters", key="creg_password")
+        confirm = st.text_input("Confirm Password", type="password", key="creg_confirm")
+ 
+        st.markdown("<br>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("CREATE ACCOUNT", use_container_width=True, key="creg_create"):
+                if not all([full_name, email, phone, address, password, confirm]):
+                    st.error("Please fill all fields.")
+                elif password != confirm:
+                    st.error("Passwords don't match.")
+                elif len(password) < 8:
+                    st.error("Password must be at least 8 characters.")
+                elif "@" not in email:
+                    st.error("Please enter a valid email address.")
+                else:
+                    existing = get_customer_by_email(email)
+                    if existing:
+                        st.error("This email is already registered. Please login instead.")
+                    else:
+                        try:
+                            auth_response = supabase.auth.sign_up({"email": email, "password": password})
+                            if auth_response.user:
+                                insert_customer_profile({
+                                    "id": auth_response.user.id,
+                                    "email": email,
+                                    "full_name": full_name,
+                                    "phone": phone,
+                                    "address": address
+                                })
+                                st.success("✅ Account created! Please login.")
+                                st.session_state.show_customer_register = False
+                                st.rerun()
+                            else:
+                                st.error("Failed to create account. Please try again.")
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
+        with c2:
+            if st.button("← Back to Login", use_container_width=True, key="creg_back"):
+                st.session_state.show_customer_register = False
                 st.rerun()
 
 # =======================================================================
@@ -1382,10 +1537,16 @@ def render_header(show_back=False, back_label="← Back to Dashboard", page_titl
         "</div>"
     )
     st.markdown(header_html, unsafe_allow_html=True)
-    if show_back:
-        if st.button(back_label, key="back_btn"):
-            st.session_state.page = "home"
-            st.rerun()
+    bcol1, bcol2 = st.columns([1, 5])
+    with bcol1:
+        if show_back:
+            if st.button(back_label, key=f"back_btn_{page_title or 'default'}"):
+                st.session_state.page = "home"
+                st.rerun()
+    with bcol2:
+        if st.session_state.get("logged_in"):
+            if st.button("🚪 Logout", key=f"logout_btn_{page_title or 'default'}"):
+                do_logout()
 
 # =======================================================================
 # ANALYTICS PAGES (KEPT INTACT - Same as before)
@@ -1903,6 +2064,17 @@ def page_home():
             st.session_state.page = "admin_overview"
             st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
+    if not st.session_state.get("is_admin") and not st.session_state.get("is_customer"):
+        new_marketplace_count = get_new_marketplace_job_count()
+        badge_html = f"<span style='background:#f43f5e;color:#fff;border-radius:99px;padding:2px 8px;font-size:10px;font-weight:800;margin-left:8px;'>{new_marketplace_count} NEW</span>" if new_marketplace_count > 0 else ""
+        mkc1, mkc2 = st.columns([3, 1])
+        with mkc1:
+            st.markdown(f"<div style='font-size:13px;font-weight:700;color:#f1f5f9;padding-top:8px;'>🛒 Marketplace{badge_html}</div>", unsafe_allow_html=True)
+        with mkc2:
+            if st.button("Browse Open Jobs →", key="btn_marketplace", use_container_width=True):
+                st.session_state.page = "marketplace_browse"
+                st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("<div style='font-size:10px;color:#334155;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;'>&#128202; Live Dashboard — click any card to open full analytics</div>", unsafe_allow_html=True)
     mc1, mc2, mc3, mc4, mc5 = st.columns(5)
     with mc1:
@@ -1928,8 +2100,8 @@ def page_home():
 
     st.markdown("<hr style='border-color:#0f0f1a;margin:28px 0 24px;'>", unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
-        "&#9889; DISPATCH","&#129302; AI BOT","&#128203; SUMMARIES","&#128222; VOICE AI","&#128194; HISTORY","&#128119; ROSTER","&#128462; INVOICES","&#128100; CUSTOMERS","&#128197; SCHEDULE"
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+        "&#9889; DISPATCH","&#129302; AI BOT","&#128203; SUMMARIES","&#128222; VOICE AI","&#128194; HISTORY","&#128119; ROSTER","&#128462; INVOICES","&#128100; CUSTOMERS","&#128197; SCHEDULE","🎯 HOMEOWNER JOBS"
     ])
 
     # ===== TAB 1: DISPATCH BOARD =====
@@ -2418,6 +2590,44 @@ def page_home():
     # ===== TAB 9: CALENDAR/SCHEDULE VIEW =====
     with tab9:
         render_calendar_view()
+    with tab10:
+        st.markdown("<div class='section-header'>🏘️ Homeowner Marketplace Jobs</div>", unsafe_allow_html=True)
+        open_jobs = get_marketplace_jobs(status_filter="open")
+        if open_jobs.empty:
+            st.info("No open marketplace jobs right now. Check back soon.")
+        else:
+            my_bids = get_bids_by_company(st.session_state.get("user_id", ""))
+            already_bid_job_ids = set(my_bids["job_id"].tolist()) if not my_bids.empty else set()
+            for _, job in open_jobs.iterrows():
+                summary = parse_summary(job.get("ai_summary", None))
+                addr = str(job.get("keywords", "") or "")
+                svc = summary.get("service_type", "") if summary else ""
+                st.markdown(f'<div class="job-card"><div class="job-card-id">JOB #{job["id"]}</div><div class="job-card-name">{job.get("customer_name","Homeowner")}</div><div class="job-card-meta"><span>📍 {addr[:50]}</span>{"<span>🔧 " + svc + "</span>" if svc else ""}</div><div style="margin-top:10px;color:#94a3b8;font-size:13px;">{str(job.get("transcript",""))[:150]}</div></div>', unsafe_allow_html=True)
+
+                if job["id"] in already_bid_job_ids:
+                    st.markdown("<div style='color:#34d399;font-size:12px;padding:6px 0;'>✓ You already placed a bid on this job</div>", unsafe_allow_html=True)
+                else:
+                    with st.form(f"bid_form_{job['id']}"):
+                        b_amount = st.number_input("Your Bid ($)", min_value=0.0, step=10.0, key=f"bid_amt_{job['id']}")
+                        b_eta = st.number_input("ETA (days)", min_value=0, max_value=30, value=1, key=f"bid_eta_{job['id']}")
+                        b_msg = st.text_area("Message to customer", key=f"bid_msg_{job['id']}", height=68)
+                        if st.form_submit_button("📤 Submit Bid"):
+                            if b_amount <= 0:
+                                st.error("Please enter a valid bid amount.")
+                            else:
+                                insert_bid({
+                                    "job_id": job["id"],
+                                    "company_user_id": st.session_state.get("user_id", ""),
+                                    "company_name": st.session_state.get("company_name", ""),
+                                    "bid_amount": b_amount,
+                                    "message": b_msg,
+                                    "eta_days": b_eta,
+                                    "status": "pending",
+                                    "created_at": datetime.now().isoformat()
+                                })
+                                st.success("Bid submitted!")
+                                st.rerun()
+                st.markdown("<hr style='border:none;border-top:1px solid #050508;margin:8px 0 16px;'>", unsafe_allow_html=True)
 
 # =======================================================================
 # TECH PORTAL ADMIN — QR Code Generator
@@ -2620,7 +2830,7 @@ def page_admin_overview():
             company_id = st.session_state.get("admin_selected_company")
             company_name = st.session_state.get("admin_selected_company_name", "—")
 
-            render_header(show_back=False, page_title=f"Admin — {company_name}")
+            render_header(show_back=True, page_title=f"Admin — {company_name}")
 
             if st.button("← Back to All Companies", key="admin_back_to_list"):
                 st.session_state.admin_selected_company = None
@@ -2666,6 +2876,98 @@ def page_admin_overview():
             else:
                 st.info("No invoices for this company yet.")
 
+                # =======================================================================
+# COMPANY MARKETPLACE — Browse & Bid on Homeowner Jobs
+# =======================================================================
+def page_marketplace_browse():
+    render_header(show_back=True, page_title="Marketplace — Open Jobs")
+
+    last_viewed = st.session_state.get("last_viewed_marketplace")
+    st.session_state.last_viewed_marketplace = datetime.now().isoformat()
+
+    open_jobs = get_marketplace_jobs(status_filter="open")
+    if open_jobs.empty:
+        st.markdown("""
+        <div style='text-align:center;padding:60px 20px;'>
+            <div style='font-size:42px;margin-bottom:16px;'>📭</div>
+            <div style='font-size:14px;font-weight:600;color:#334155;margin-bottom:8px;'>No open jobs right now</div>
+            <div style='font-size:12px;color:#475569;'>Check back soon — new homeowner jobs appear here as they're posted.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    my_id = st.session_state.get("user_id")
+    my_company_name = st.session_state.get("company_name", "")
+
+    for _, job in open_jobs.iterrows():
+        summary = parse_summary(job.get("ai_summary", None))
+        svc = summary.get("service_type", "—") if summary else "—"
+        urgency = summary.get("urgency", "Normal") if summary else "Normal"
+        problem = summary.get("problem", job.get("transcript", "—")) if summary else job.get("transcript", "—")
+
+        ts = job.get("timestamp")
+        is_new = bool(ts) and (not last_viewed or str(ts) > str(last_viewed))
+
+        new_badge = "<span style='background:rgba(244,63,94,0.15);color:#fb7185;border-radius:99px;padding:2px 10px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-left:8px;'>🔴 New</span>" if is_new else ""
+        urgency_badge = f"<span style='background:rgba(245,158,11,0.12);color:#fbbf24;border-radius:99px;padding:2px 10px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-left:6px;'>{urgency}</span>" if urgency in ("High", "Emergency") else ""
+
+        st.markdown(f"""
+        <div class="job-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <div class="job-card-id">JOB #{job['id']} · {svc}{new_badge}{urgency_badge}</div>
+            </div>
+            <div class="job-card-name">{problem[:120]}</div>
+            <div class="job-card-meta">
+                <span>📍 {str(job.get('keywords',''))[:60]}</span>
+                <span>🕒 {str(job.get('timestamp',''))[:16]}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        photos = get_job_photos(job['id'])
+        if not photos.empty:
+            st.markdown("<div style='font-size:10px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:1px;margin:10px 0 8px;'>📷 Photos from homeowner</div>", unsafe_allow_html=True)
+            photo_cols = st.columns(min(len(photos), 4))
+            for idx, (_, ph) in enumerate(photos.iterrows()):
+                img_data = ph.get('image_b64', '')
+                if img_data:
+                    with photo_cols[idx % 4]:
+                        st.markdown(f'<div style="border-radius:10px;overflow:hidden;border:1px solid #0f0f1a;"><img src="data:image/jpeg;base64,{img_data}" style="width:100%;display:block;"></div>', unsafe_allow_html=True)
+
+        existing_bids = get_bids_for_job(job['id'])
+        already_bid = False
+        if not existing_bids.empty and "company_user_id" in existing_bids.columns:
+            already_bid = my_id in existing_bids["company_user_id"].values
+
+        if already_bid:
+            my_bid = existing_bids[existing_bids["company_user_id"] == my_id].iloc[0]
+            st.markdown(f"<div style='background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:10px 14px;margin-top:10px;font-size:12px;color:#818cf8;'>✅ You bid ${my_bid.get('bid_amount',0):,.2f} · Status: {my_bid.get('status','pending')}</div>", unsafe_allow_html=True)
+        else:
+            with st.form(f"bid_form_{job['id']}"):
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    amt = st.number_input("Your Bid ($)", min_value=0.0, step=10.0, key=f"bid_amt_{job['id']}")
+                with bc2:
+                    eta = st.number_input("ETA (days)", min_value=0, step=1, key=f"bid_eta_{job['id']}")
+                msg = st.text_area("Message to homeowner", placeholder="Briefly explain your approach or why you're a good fit...", key=f"bid_msg_{job['id']}", height=70)
+                if st.form_submit_button("📨 Submit Bid", use_container_width=True):
+                    if amt <= 0:
+                        st.error("Please enter a bid amount.")
+                    else:
+                        insert_bid({
+                            "job_id": job['id'],
+                            "company_user_id": my_id,
+                            "company_name": my_company_name,
+                            "bid_amount": amt,
+                            "eta_days": eta,
+                            "message": msg,
+                            "status": "pending",
+                            "created_at": datetime.now().isoformat(),
+                        })
+                        st.success("Bid submitted!")
+                        st.rerun()
+
+        st.markdown("<hr style='border:none;border-top:1px solid #050508;margin:12px 0 20px;'>", unsafe_allow_html=True)
 # =======================================================================
 # CUSTOMER CRM FULL PAGE
 # =======================================================================
@@ -2732,47 +3034,211 @@ def page_customer_crm():
                 st.markdown("<hr style='border-color:#0f0f1a;margin:24px 0;'>", unsafe_allow_html=True)
         else: st.info("No customers found.")
     else: st.markdown("<div style='text-align:center;padding:60px;'><div style='font-size:42px;margin-bottom:16px;'>&#128100;</div><div style='font-size:14px;font-weight:600;color:#334155;'>Search for a customer to view their full profile</div></div>", unsafe_allow_html=True)
+def page_customer_home():
+    st.markdown(f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #0f0f1a;">
+        <div style="display:flex;align-items:center;gap:16px;">
+            <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:22px;">🏠</div>
+            <div>
+                <div style="font-family:Space Grotesk,sans-serif;font-size:22px;font-weight:700;color:#f8fafc;letter-spacing:-0.5px;">{st.session_state.customer_name}</div>
+                <div style="font-size:10px;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:2px;margin-top:1px;">Teleron Marketplace · Homeowner Portal</div>
+            </div>
+        </div>
+        <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:99px;padding:6px 14px;font-size:11px;font-weight:700;color:#34d399;">🟢 Verified Homeowner</div>
+    </div>
+    """, unsafe_allow_html=True)
 
+    if st.button("🚪 Logout", key="cust_logout"):
+        do_logout()
+
+    my_jobs_all = get_customer_jobs_marketplace(st.session_state.customer_id)
+    jobs_posted = len(my_jobs_all)
+    active_bids_total = 0
+    completed_jobs = 0
+    total_spent = 0.0
+    if not my_jobs_all.empty:
+        completed_jobs = len(my_jobs_all[my_jobs_all["status"].isin(["Completed", "Invoiced", "Paid"])])
+        for _, j in my_jobs_all.iterrows():
+            jbids = get_bids_for_job(j["id"])
+            if not jbids.empty:
+                active_bids_total += len(jbids[jbids["status"] == "pending"])
+                won = jbids[jbids["status"] == "accepted"]
+                if not won.empty:
+                    total_spent += won.iloc[0].get("bid_amount", 0) or 0
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    k1, k2, k3, k4 = st.columns(4)
+    for col, val, label, color in [
+        (k1, jobs_posted, "Jobs Posted", "#818cf8"),
+        (k2, active_bids_total, "Active Bids", "#fbbf24"),
+        (k3, completed_jobs, "Completed", "#34d399"),
+        (k4, f"${total_spent:,.0f}", "Total Spent", "#f472b6"),
+    ]:
+        with col:
+            st.markdown(f"<div class='analytics-kpi'><div class='analytics-kpi-num' style='color:{color};'>{val}</div><div class='analytics-kpi-label'>{label}</div></div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["📝 Post a Job", "📋 My Jobs & Bids"])
+
+    # ----- TAB 1: POST A JOB -----
+    with tab1:
+        st.markdown("<div class='section-header'>Post a New Job for Bidding</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:12px;color:#475569;margin-bottom:18px;'>Describe your issue once — verified companies in your area will compete for your job.</div>", unsafe_allow_html=True)
+
+        j_desc = st.text_area("Describe your problem", placeholder="e.g. AC not cooling, making a rattling noise, started 2 days ago...", height=110, key="cj_desc")
+
+        st.markdown("<div class='address-box'><div class='address-box-title'>📍 Service Address</div>", unsafe_allow_html=True)
+        j_street = st.text_input("Street Address", placeholder="123 Main Street", key="cj_street")
+        jc1, jc2 = st.columns(2)
+        with jc1:
+            j_city = st.text_input("City", placeholder="Houston", key="cj_city")
+        with jc2:
+            j_state = st.text_input("State", placeholder="Texas", key="cj_state")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        jc3, jc4 = st.columns(2)
+        with jc3:
+            j_service = st.selectbox("Service Type", ["HVAC", "Plumbing", "Electrical", "Appliance Repair", "General Home Service"], key="cj_service")
+        with jc4:
+            j_urgency = st.selectbox("Urgency", ["Normal", "High", "Emergency"], key="cj_urgency")
+
+        j_photo = st.file_uploader("Upload a photo of the issue (optional)", type=["jpg", "jpeg", "png"], key="cj_photo")
+        if j_photo:
+            st.image(j_photo, width=200)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("📤 Post Job for Bidding", use_container_width=True, key="cj_submit"):
+            if not j_desc.strip() or not j_street.strip():
+                st.error("Please describe the problem and provide an address.")
+            else:
+                full_address = f"{j_street}, {j_city}, {j_state}"
+                with st.spinner("Posting your job..."):
+                    result = insert_job({
+                        "customer_name": st.session_state.customer_name,
+                        "phone": st.session_state.get("customer_phone", "") or "",
+                        "transcript": j_desc,
+                        "status": "Pending Assignment",
+                        "scheduled_date": str(datetime.now().date()),
+                        "assigned_tech": "Unassigned",
+                        "timestamp": datetime.now().isoformat(),
+                        "keywords": full_address,
+                        "posted_by_customer_id": st.session_state.customer_id,
+                        "is_marketplace_job": True,
+                        "bidding_status": "open"
+                    })
+                    if result.data:
+                        new_id = result.data[0]["id"]
+                        summary = generate_call_summary(j_desc, st.session_state.customer_name, st.session_state.get("customer_phone", ""))
+                        summary["service_type"] = j_service
+                        summary["urgency"] = j_urgency
+                        save_summary_to_db(new_id, summary)
+                        if j_photo:
+                            img_b64 = base64.b64encode(j_photo.getvalue()).decode()
+                            insert_job_photo({"job_id": new_id, "image_b64": img_b64[:50000], "caption": j_photo.name, "timestamp": datetime.now().isoformat()})
+                        st.success("✅ Job posted! Companies will start bidding shortly.")
+                        st.rerun()
+                    else:
+                        st.error("Something went wrong. Please try again.")
+
+    # ----- TAB 2: MY JOBS & BIDS -----
+    with tab2:
+        st.markdown("<div class='section-header'>My Jobs & Bids</div>", unsafe_allow_html=True)
+
+        if my_jobs_all.empty:
+            st.markdown("""
+            <div style='text-align:center;padding:60px 20px;'>
+                <div style='font-size:42px;margin-bottom:16px;'>📋</div>
+                <div style='font-size:14px;font-weight:600;color:#334155;margin-bottom:8px;'>No jobs posted yet</div>
+                <div style='font-size:12px;color:#475569;max-width:320px;margin:0 auto;'>Head to the "Post a Job" tab to describe your issue and start receiving bids from verified companies.</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            for _, job in my_jobs_all.iterrows():
+                bstatus = job.get("bidding_status", "open")
+                addr = str(job.get("keywords", "") or "")
+                bids = get_bids_for_job(job["id"])
+
+                bid_count_label = f"{len(bids)} bid(s)" if not bids.empty else "No bids yet"
+                st.markdown(f"""
+                <div class="job-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <div class="job-card-id">JOB #{job['id']}</div>
+                        {status_pill_html(job.get("status","Pending Assignment"))}
+                    </div>
+                    <div class="job-card-name">{addr[:70] or 'Address not specified'}</div>
+                    <div class="job-card-meta">
+                        <span>📋 Bidding: {bstatus}</span>
+                        <span>💬 {bid_count_label}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                if bids.empty:
+                    st.markdown("<div style='padding:10px 0 20px;color:#334155;font-size:12px;'>No bids yet. Check back soon — companies typically respond within a few hours.</div>", unsafe_allow_html=True)
+                else:
+                    bids_sorted = bids.sort_values("bid_amount")
+                    lowest_bid_id = bids_sorted.iloc[0]["id"] if not bids_sorted.empty else None
+
+                    for _, bid in bids_sorted.iterrows():
+                        is_best = bid["id"] == lowest_bid_id and bid.get("status") == "pending"
+                        best_badge = "<span style='background:rgba(16,185,129,0.15);color:#34d399;border-radius:99px;padding:2px 10px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-left:8px;'>Best Value</span>" if is_best else ""
+                        st.markdown(f"""
+                        <div style="background:#03030a;border:1px solid {'rgba(16,185,129,0.3)' if is_best else '#0f0f1a'};border-radius:12px;padding:14px 16px;margin-bottom:8px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <div style="font-weight:700;color:#f1f5f9;">{bid.get("company_name","—")}{best_badge}</div>
+                                <div style="font-size:16px;font-weight:700;color:#34d399;">${bid.get("bid_amount",0):,.2f}</div>
+                            </div>
+                            <div style="font-size:12px;color:#475569;margin-top:6px;">{bid.get("message","") or "No message provided."}</div>
+                            <div style="font-size:11px;color:#334155;margin-top:4px;">ETA: {bid.get("eta_days","—")} day(s) · Status: {bid.get("status","pending")}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if bstatus == "open" and bid.get("status") == "pending":
+                            if st.button("✓ Accept this bid", key=f"accept_bid_{bid['id']}", use_container_width=True):
+                                with st.spinner("Accepting bid..."):
+                                    if accept_bid(bid["id"], job["id"], bid.get("company_name", "")):
+                                        st.success(f"Bid accepted! {bid.get('company_name')} has been notified.")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to accept bid. Please try again.")
+                st.markdown("<hr style='border:none;border-top:1px solid #050508;margin:8px 0 20px;'>", unsafe_allow_html=True)
 # =======================================================================
 # ROUTER
 # =======================================================================
-
-# Check login status first
 if not st.session_state.get("logged_in", False):
-    if st.session_state.get("show_register", False):
+    if st.session_state.get("show_customer_register", False):
+        customer_register_page()
+    elif st.session_state.get("show_register", False):
         register_page()
     else:
         login_page()
+    st.stop()
 else:
-    # Check trial status for company users
-    if not st.session_state.get("is_admin", False):
-        trial_check = check_trial_status(st.session_state.get("user_email", ""))
-        if trial_check['status'] == 'expired':
-            st.error("❌ Your free trial has expired. Please contact support@teleron.net to upgrade.")
-            if st.button("Logout"):
-                st.session_state.clear()
-                st.rerun()
-            st.stop()
-    
-    page = st.session_state.get("page", "home")
-
-    if page == "total_calls":
-        page_total_calls()
-    elif page == "active_jobs":
-        page_active_jobs()
-    elif page == "pending":
-        page_pending()
-    elif page == "technicians":
-        page_technicians()
-    elif page == "revenue":
-        page_revenue()
-    elif page == "tech_portal_admin":
-        page_tech_portal_admin()
-    elif page == "tech_portal":
-        page_tech_portal()
-    elif page == "admin_overview":
-        page_admin_overview()
-    elif page == "customer_crm":
-        page_customer_crm()
+    # If logged in, check what type of user
+    if st.session_state.get("is_customer", False):
+        page_customer_home()
+    elif st.session_state.get("is_admin", False):
+        page_home()  # Admin sees company portal for now
     else:
-        page_home()
+        # Company user
+        page = st.session_state.get("page", "home")
+
+        if page == "total_calls":
+            page_total_calls()
+        elif page == "active_jobs":
+            page_active_jobs()
+        elif page == "pending":
+            page_pending()
+        elif page == "technicians":
+            page_technicians()
+        elif page == "revenue":
+            page_revenue()
+        elif page == "tech_portal_admin":
+            page_tech_portal_admin()
+        elif page == "tech_portal":
+            page_tech_portal()
+        elif page == "marketplace_browse":
+            page_marketplace_browse()
+        elif page == "customer_crm":
+            page_customer_crm()
+        else:
+            page_home()
